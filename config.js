@@ -18,10 +18,10 @@
     SHEET_BASE_URL: SHEET_BASE,
     // gid of each tab. null = tab not configured yet (the app falls back to cache or local file).
     SHEET_GIDS: {
-      airlines: null, // TODO: gid of the "Airlines" tab
-      config: null,   // TODO: gid of the "Config" tab
-      boxTime: null,  // TODO: gid of the "BoxTime" tab
-      audit: null,    // TODO (phase 4): gid of the "Audit" tab
+      airlines: '1001', // "Airlines" tab
+      config: '1002',   // "Config" tab
+      boxTime: '1003',  // "BoxTime" tab
+      audit: '1004',    // "Audit" tab (phase 4)
     },
     SHEET_REFRESH_MS: 5 * 60 * 1000,
 
