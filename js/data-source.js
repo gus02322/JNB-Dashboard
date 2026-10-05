@@ -121,7 +121,7 @@
 
   function create(cfg, env) {
     const listeners = [];
-    let localFile; // undefined = not tried yet, null = unavailable
+    let localFile; // promise of the local file content (null when unavailable), read once
     const state = { flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], tabs: {} };
 
     function tabUrl(name) {
@@ -145,12 +145,12 @@
       try { env.storage && env.storage.setItem(CACHE_PREFIX + name, JSON.stringify({ at, data })); } catch (e) { /* quota */ }
     }
 
-    async function readLocalFile() {
-      if (localFile !== undefined) return localFile;
-      try {
-        const r = await env.fetch(cfg.LOCAL_DATA_URL, { cache: 'no-store' });
-        localFile = r.ok ? await r.json() : null;
-      } catch (e) { localFile = null; }
+    function readLocalFile() {
+      if (!localFile) {
+        localFile = env.fetch(cfg.LOCAL_DATA_URL, { cache: 'no-store' })
+          .then(r => (r.ok ? r.json() : null))
+          .catch(() => null);
+      }
       return localFile;
     }
 
