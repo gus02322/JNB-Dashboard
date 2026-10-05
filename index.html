@@ -393,6 +393,57 @@
   .anga-v2 #mobile-stats .spill .val { font-size: 11px; }
   .anga-v2 .dr-section-title { font-size: 10px; letter-spacing: 0.8px; }
 }
+/* ===== FLIGHT VIEW (new look) ===== */
+#fv-overlay { display: none; position: fixed; inset: 0; z-index: 1100; background: rgba(5,8,14,0.72); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 16px; }
+#fv-overlay.show { display: flex; }
+#fv-box { width: 100%; max-width: 780px; max-height: calc(100vh - 32px); overflow-y: auto; background: #1a1f29; border: 1px solid #2c3442; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.55); font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #e4e7ee; }
+.fv-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #2c3442; }
+.fv-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.fv-flight { font-size: 17px; font-weight: 700; letter-spacing: 0.3px; }
+.fv-sub { font-size: 13px; color: #8a93a6; }
+.fv-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 4px 10px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.fv-pill.live { color: #4dffb4; border-color: rgba(77,255,180,0.45); background: rgba(77,255,180,0.08); }
+.fv-pill.sched { color: #8a93a6; border-color: #3a4352; }
+.fv-pill.fallback { color: #ffaa44; border-color: rgba(255,170,68,0.45); }
+.fv-close { cursor: pointer; color: #8a93a6; font-size: 18px; padding: 2px 6px; margin-left: 6px; }
+.fv-map { position: relative; height: 190px; border-bottom: 1px solid #2c3442; background-color: #161a23; background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px); background-size: 28px 28px; overflow: hidden; }
+.fv-map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fv-clock { position: absolute; top: 10px; left: 14px; font-size: 15px; font-weight: 700; color: #ffcc00; }
+.fv-pos { position: absolute; top: 31px; left: 14px; font-size: 11px; color: #8a93a6; }
+.fv-note { position: absolute; bottom: 8px; left: 14px; font-size: 10px; color: #5f6878; }
+.fv-eta { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #2c3442; flex-wrap: wrap; }
+.fv-eta-lbl { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #4dffb4; margin-bottom: 4px; }
+.fv-eta-lbl.sched { color: #8a93a6; }
+.fv-eta-time { font-size: 46px; font-weight: 700; line-height: 1; letter-spacing: 1px; }
+.fv-eta-right { text-align: right; }
+.fv-count { font-size: 20px; font-weight: 700; }
+.fv-upd { font-size: 11px; color: #8a93a6; margin-top: 4px; }
+.fv-cards { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid #2c3442; }
+.fv-card { padding: 12px 14px; border-top: 2px solid; border-right: 1px solid #2c3442; min-width: 0; }
+.fv-card:last-child { border-right: none; }
+.fv-card-lbl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; min-height: 17px; }
+.fv-card-time { font-size: 24px; font-weight: 700; margin: 6px 0 4px; }
+.fv-card-sub { font-size: 11px; color: #8a93a6; line-height: 1.4; }
+.fv-mini { font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 1px 6px; border-radius: 999px; }
+.fv-mini.live { color: #4dffb4; border: 1px solid rgba(77,255,180,0.45); display: inline-flex; align-items: center; gap: 4px; }
+.fv-mini.live .live-dot { width: 6px; height: 6px; margin: 0; }
+.fv-tl { position: relative; height: 62px; margin: 14px 22px 4px; }
+.fv-tl-axis { position: absolute; left: 0; right: 0; top: 22px; height: 1px; background: #343c4b; }
+.fv-tl-tick { position: absolute; top: 40px; transform: translateX(-50%); font-size: 10px; color: #5f6878; }
+.fv-tl-tick::before { content: ''; position: absolute; left: 50%; top: -18px; width: 1px; height: 6px; background: #343c4b; }
+.fv-tl-dia { position: absolute; top: 16px; width: 12px; height: 12px; transform: translateX(-50%) rotate(45deg); border-radius: 2px; }
+.fv-tl-now { position: absolute; top: 4px; width: 2px; height: 34px; background: #ffcc00; box-shadow: 0 0 6px rgba(255,204,0,0.6); transform: translateX(-50%); }
+.fv-rules { padding: 6px 18px 16px; font-size: 11px; color: #8a93a6; }
+@media (max-width: 768px) {
+  #fv-overlay { padding: 0; align-items: flex-end; }
+  #fv-box { max-height: 92vh; border-radius: 16px 16px 0 0; }
+  .fv-map { height: 150px; }
+  .fv-eta-time { font-size: 38px; }
+  .fv-cards { grid-template-columns: repeat(2, 1fr); }
+  .fv-card { border-bottom: 1px solid #2c3442; }
+  .fv-tl { margin: 14px 16px 4px; }
+}
+@media (min-width: 1600px) { #fv-box { max-width: 980px; } .fv-eta-time { font-size: 58px; } .fv-card-time { font-size: 30px; } }
 /* TOAST */
 #toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 11px; padding: 8px 16px; border-radius: 3px; z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
@@ -868,6 +919,11 @@
     </div>
     <div id="search-results"></div>
   </div>
+</div>
+
+<!-- FLIGHT VIEW (new look) -->
+<div id="fv-overlay" onclick="if(event.target===this)closeFlightView()">
+  <div id="fv-box" role="dialog" aria-modal="true"></div>
 </div>
 
 <!-- FLIGHT DETAIL SHEET -->
@@ -1595,6 +1651,7 @@ function importData(input){const file=input.files[0];if(!file)return;const reade
 
 /* FLIGHT DETAIL SHEET */
 function openFlightSheet(flightId){
+  if(CFG.flag('NEW_LOOK')){openFlightView(flightId);return;}
   const f=flights.find(x=>x.id===flightId);
   if(!f)return;
   const color=getColor(f.airline);
@@ -1705,7 +1762,8 @@ function pickFlight(id){
 }
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
-    if(document.getElementById('live-log-overlay').classList.contains('show'))closeLiveLog();
+    if(document.getElementById('fv-overlay').classList.contains('show'))closeFlightView();
+    else if(document.getElementById('live-log-overlay').classList.contains('show'))closeLiveLog();
     else if(document.getElementById('search-overlay').classList.contains('show'))closeSearch();
     else if(document.getElementById('flight-sheet').classList.contains('show'))closeFlightSheet();
   }
@@ -1733,6 +1791,109 @@ function scrollToNow(){
 /* BG SWATCHES */
 function initBgSwatches(){document.querySelectorAll('.bg-sw').forEach(sw=>{sw.addEventListener('click',()=>{bgTheme.hue=parseInt(sw.dataset.h);applyBgTheme();});});}
 
+/* FLIGHT VIEW (new look) */
+let fvId=null,fvTimer=null;
+function fmtDur(m){m=Math.round(m);const h=Math.floor(Math.abs(m)/60),mm=Math.abs(m)%60;return h?`${h}h${String(mm).padStart(2,'0')}`:`${mm} min`;}
+function openFlightView(id){fvId=id;renderFlightView();document.getElementById('fv-overlay').classList.add('show');clearInterval(fvTimer);fvTimer=setInterval(tickFlightView,1000);}
+function closeFlightView(){document.getElementById('fv-overlay').classList.remove('show');clearInterval(fvTimer);fvId=null;}
+function fvModel(f){
+  const C=AngaLiveCore,sc=C.schedule(f),L=liveFor(f),st=liveOn()?AngaLive.status():null;
+  const live=!!(L&&L.eta!==undefined);
+  const t={eta:live?L.eta:sc.eta,seal:L&&L.sealAuto?L.seal:sc.seal,truck:L&&L.truckAuto?L.truck:sc.truck,
+    etd:L&&L.departedAt!==undefined?L.departedAt:L&&L.etd!==undefined?L.etd:sc.etd};
+  const bs=C.boxSettings((k,d)=>AngaData.setting(k,d)),nm=isToday(viewDate)?nowMins():-1;
+  const boxes=AngaData.get().boxTime.filter(b=>b.si!==null&&b.si===f.si).map(b=>{
+    let base=C.t2m(b.override),rule=false;
+    if(base===null&&CFG.flag('BOX_TIME_FORMULA')){const fm=C.boxSlotFormula(f,bs);if(fm&&fm.day===b.day){base=fm.m;rule=true;}}
+    if(base===null)return null;
+    let r={m:base,auto:false,flagged:false};
+    if(liveOn()&&nm>=0&&f.days.includes(viewDayOfWeek()))r=AngaLive.boxSlot(b,f,base,nm);
+    return{day:b.day,m:r.m,base,auto:r.auto,flagged:r.flagged,rule};
+  }).filter(Boolean).sort((a,b)=>(a.day==='D')-(b.day==='D'));
+  return{C,sc,L,live,t,boxes,nm,status:st};
+}
+function renderFlightView(){
+  const f=flights.find(x=>x.id===fvId);if(!f){closeFlightView();return;}
+  const {C,sc,L,live,t,boxes,nm,status}=fvModel(f),m2t=C.m2t,color=getColor(f.airline);
+  const mt=(f.mealType||'').toLowerCase();
+  const pill=live?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
+    :status&&status.state!=='ok'&&liveOn()?'<span class="fv-pill fallback">Scheduled times</span>':'<span class="fv-pill sched">Scheduled</span>';
+  const dir=sc.eta!==null?'inbound':'departure only';
+  // schematic map: hub on the right, aircraft placed by its distance to the hub (not to scale)
+  const hub=CFG&&AngaData.setting('AIRPORT_ICAO','')||'HUB';
+  const P0=[40,150],P1=[300,8],P2=[548,118];
+  const q=(u)=>[(1-u)*(1-u)*P0[0]+2*(1-u)*u*P1[0]+u*u*P2[0],(1-u)*(1-u)*P0[1]+2*(1-u)*u*P1[1]+u*u*P2[1]];
+  let u=null,posTxt='Not in live coverage yet: scheduled times shown';
+  if(L&&L.departedAt!==undefined){u=1;posTxt='Departed '+m2t(L.departedAt)+' (live)';}
+  else if(live&&L.landed){u=1;posTxt='Landed (live)';}
+  else if(live&&L.pos){u=Math.min(0.96,Math.max(0.04,1-L.pos.dist/400));const alt=typeof L.pos.alt==='number'?' · FL'+String(Math.round(L.pos.alt/100)).padStart(3,'0'):'';posTxt=`${Math.round(L.pos.dist)} nm from ${esc(hub)} · ${Math.round(L.pos.gs||0)} kt${alt}`;}
+  else if(!liveOn())posTxt='Live tracking is off: scheduled times shown';
+  let travelled='',plane='';
+  if(u!==null){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round"/>`;
+    const a=q(u),b=q(Math.min(1,u+0.01)),ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
+    plane=u<1?`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#eef0fa" stroke="#00d4ff" stroke-width="1"/></g>`:'';}
+  const map=`<div class="fv-map"><svg viewBox="0 0 600 190" preserveAspectRatio="none">
+    <path d="M${P0} Q${P1} ${P2}" fill="none" stroke="#3a4352" stroke-width="1.5" stroke-dasharray="4 5"/>
+    <circle cx="${P0[0]}" cy="${P0[1]}" r="3" fill="#3a4352"/>
+    ${travelled}${plane}
+    <circle cx="${P2[0]}" cy="${P2[1]}" r="44" fill="none" stroke="#2f3746" stroke-dasharray="3 4"/>
+    <circle cx="${P2[0]}" cy="${P2[1]}" r="8" fill="none" stroke="#4dffb4" stroke-width="2"/><circle cx="${P2[0]}" cy="${P2[1]}" r="3" fill="#4dffb4"/>
+    <text x="${P2[0]}" y="${P2[1]+26}" fill="#8a93a6" font-size="11" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="1">${esc(hub)}</text>
+  </svg><div class="fv-clock" id="fv-clock"></div><div class="fv-pos">${posTxt}</div><div class="fv-note">Schematic view, not to scale</div></div>`;
+  // headline: ETA (or ETD for a departure-only flight)
+  const headKey=sc.eta!==null?'eta':'etd',headM=t[headKey];
+  const headLbl=headKey==='eta'?(live?(L.landed?'Landed (live)':'Live estimated ETA'):'Scheduled ETA'):(L&&L.etd!==undefined?'Live estimated ETD':'Scheduled ETD');
+  const eta=`<div class="fv-eta"><div><div class="fv-eta-lbl${live?'':' sched'}">${headLbl}</div><div class="fv-eta-time">${headM===null?'-':m2t(headM)}</div></div>
+    <div class="fv-eta-right"><div class="fv-count" id="fv-count"></div><div class="fv-upd" id="fv-upd"></div></div></div>`;
+  // cards
+  const box=boxes[0];
+  const card=(c,lbl,m,sched,badge,sub)=>`<div class="fv-card" style="border-top-color:${c}"><div class="fv-card-lbl" style="color:${c}">${lbl}${badge||''}</div><div class="fv-card-time">${m===null||m===undefined?'-':m2t(m)}</div><div class="fv-card-sub">${sub!==undefined?sub:sched!==null&&sched!==undefined?'Scheduled '+m2t(sched):'Not planned'}</div></div>`;
+  const liveB='<span class="fv-mini live"><span class="live-dot"></span>Live</span>',autoB=' <span class="auto-badge">Auto</span>';
+  const nd=t.etd!==null&&t.etd>=1440?' · next day':'';
+  const cards=`<div class="fv-cards">
+    ${card('#4dffb4','ETA',t.eta,sc.eta,live?liveB:'')}
+    ${card('#ffaa44','Sealing',t.seal,sc.seal,L&&L.sealAuto?autoB:'')}
+    ${card('#c8aaff','Box Time',box?box.m:null,null,box&&box.auto?autoB:box&&box.flagged?' <span class="gap-badge">Check</span>':'',box?(box.day==='D-1'?'Day before (D-1)':'Same day (D)')+(box.auto?' · scheduled '+m2t(box.base):'')+(boxes.length>1?' · +'+(boxes.length-1)+' slot':''):'No slot')}
+    ${card('#ff6b6b','Truck Departure',t.truck,sc.truck,L&&L.truckAuto?autoB:'')}
+    ${card('#66aaff','ETD',t.etd,sc.etd,L&&(L.etd!==undefined||L.departedAt!==undefined)?liveB:'',(L&&L.departedAt!==undefined?'Departed (live)':'Scheduled '+(sc.etd===null?'-':m2t(sc.etd)))+nd)}
+  </div>`;
+  // mini timeline
+  const pts=[['#4dffb4',t.eta,'ETA'],['#ffaa44',t.seal,'Sealing'],['#ff6b6b',t.truck,'Truck'],['#66aaff',t.etd,'ETD']].filter(p=>p[1]!==null&&p[1]!==undefined);
+  if(box&&box.day==='D')pts.push(['#c8aaff',box.m,'Box Time']);
+  let tl='';
+  if(pts.length){const ms=pts.map(p=>p[1]);const lo=Math.floor((Math.min(...ms)-30)/60)*60,hi=Math.ceil((Math.max(...ms)+30)/60)*60,span=hi-lo||60;
+    const pos=m=>((m-lo)/span*100).toFixed(2)+'%';let ticks='';const step=span>480?120:60;for(let h=lo;h<=hi;h+=step)ticks+=`<div class="fv-tl-tick" style="left:${pos(h)}">${m2t(h)}</div>`;
+    const now=nm>=0&&nm>=lo&&nm<=hi?`<div class="fv-tl-now" style="left:${pos(nm)}" title="Now"></div>`:'';
+    tl=`<div class="fv-tl"><div class="fv-tl-axis"></div>${ticks}${pts.map(p=>`<div class="fv-tl-dia" style="left:${pos(p[1])};background:${p[0]};box-shadow:0 0 8px ${p[0]}88" title="${p[2]} ${m2t(p[1])}"></div>`).join('')}${now}</div>`;}
+  // this flight's own rules, from the Sheet
+  const rules=[];
+  if(sc.eta!==null&&sc.etd!==null){const g=sc.etd-sc.eta;rules.push('Ground time '+fmtDur(g)+(g>=AngaData.setting('DAY_STOP_MIN_GROUND',360)?' (day stop: a late arrival does not move the ETD)':''));}
+  if(sc.etd!==null&&sc.seal!==null)rules.push('Sealing = ETD - '+fmtDur(sc.etd-sc.seal));
+  if(sc.etd!==null&&sc.truck!==null)rules.push('Truck = ETD - '+fmtDur(sc.etd-sc.truck));
+  const meal=mt?` · ${mt==='halal'?'Halal':mt==='western'?'Western':esc(mt)}`:'';
+  document.getElementById('fv-box').innerHTML=`<div class="fv-head"><span class="fv-dot" style="background:${color}"></span><span class="fv-flight">${esc(f.flight)}</span><span class="fv-sub">${esc(f.airline)} · ${dir}${meal}</span>${pill}<span class="fv-close" onclick="closeFlightView()" title="Close">✕</span></div>
+    ${map}${eta}${cards}${tl}<div class="fv-rules">Rules for this flight: ${rules.join(' · ')||'no timing in the Sheet'}${live?' · Live estimates come from live aircraft tracking (ADS-B), not from official airline schedules.':''}</div>`;
+  tickFlightView();
+}
+function tickFlightView(){
+  const f=flights.find(x=>x.id===fvId);if(!f)return;
+  const n=new Date(),pad=v=>String(v).padStart(2,'0');
+  const ck=document.getElementById('fv-clock');if(ck)ck.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+  const {sc,L,live,t}=fvModel(f),cnt=document.getElementById('fv-count'),upd=document.getElementById('fv-upd');
+  const headM=sc.eta!==null?t.eta:t.etd;
+  if(cnt){
+    if(!isToday(viewDate)||headM===null)cnt.textContent='';
+    else{const s=Math.round((headM-nowMins())*60);
+      if(live&&L.landed)cnt.textContent='Landed';
+      else if(s<=0)cnt.textContent=sc.eta!==null?'Due now or arrived':'Due now or departed';
+      else{const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;cnt.textContent='in '+(h?h+' h ':'')+m+' min'+(h?'':' '+ss+' s');}}
+  }
+  if(upd){
+    if(live&&L.seenAt){const a=Math.max(0,Math.round((Date.now()-L.seenAt)/1000));upd.textContent='Position updated '+(a<90?a+' s':Math.round(a/60)+' min')+' ago · live aircraft tracking (ADS-B)';}
+    else upd.textContent='Scheduled time from the planning';
+  }
+}
+
 /* LIVE TRACKING UI */
 function updateLiveIndicator(){
   const on=liveOn();
@@ -1749,6 +1910,7 @@ function updateLiveIndicator(){
 function onLiveUpdate(){
   updateLiveIndicator();
   refreshCurrentView();
+  if(fvId)renderFlightView();
   const tight=AngaLive.takeTightAlerts();
   if(tight.length&&alertSettings.on){const t=tight[0];showAlertModal(t,t.minsLeft,'Slot too tight');}
 }

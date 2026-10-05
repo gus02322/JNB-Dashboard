@@ -108,7 +108,7 @@
       failures++;
       status = { state: 'fallback', at: status.at, error: String(e.message || e) };
       notify();
-      return schedule(Math.min(p.refreshSec * 2 ** failures, 900)); // exponential backoff, 15 min max
+      return schedule(Math.min(p.refreshSec * 2 ** failures, Math.max(900, p.refreshSec * 4))); // exponential backoff
     }
     failures = 0;
     lastPayload = Object.assign({}, payload, { routes: Object.assign({}, lastPayload && lastPayload.routes, payload.routes) });
@@ -147,7 +147,8 @@
         st.eta = C.round5(est.etaM); st.confidence = est.confidence;
       }
       st.routeOk = route === 'ok';
-      st.seenAt = Date.now();
+      st.seenAt = Date.now() - (ac.seen_pos || 0) * 1000;
+      st.pos = { lat: ac.lat, lon: ac.lon, dist: est.dist, gs: ac.gs, alt: ac.alt_baro, callsign };
       row.eta = C.m2t(st.eta); row.confidence = st.confidence;
       rows.push(row);
     });
@@ -215,7 +216,7 @@
     if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt } : null;
     const s = C.schedule(f), a = st.applied || {};
     return {
-      eta: st.eta, confidence: st.confidence, landed: !!st.landedAt, routeOk: st.routeOk,
+      eta: st.eta, confidence: st.confidence, landed: !!st.landedAt, routeOk: st.routeOk, pos: st.pos, seenAt: st.seenAt,
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt,
       sealAuto: a.seal !== undefined && a.seal !== s.seal, truckAuto: a.truck !== undefined && a.truck !== s.truck, etdAuto: a.etd !== undefined && a.etd !== s.etd,
     };
