@@ -1,0 +1,4 @@
+# Real operational data kept as a local fallback. Never commit it.
+data/local-data.json
+node_modules/
+.DS_Store

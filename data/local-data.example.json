@@ -1,0 +1,21 @@
+{
+  "_comment": "FICTIVE example of the local fallback file. Copy to data/local-data.json (not versioned) and fill with real data. Same shapes as the Sheet tabs once parsed.",
+  "flights": {
+    "rows": [
+      { "id": "gs0", "si": 1, "airline": "Demo Air One", "mealType": "halal", "flight": "ZZ101", "eta": "06:10", "etd": "08:40", "sealing": "05:00", "truck": "06:00", "days": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"], "flightOut": "" },
+      { "id": "gs1", "si": 2, "airline": "Demo Air Two", "mealType": "western", "flight": "ZY202", "eta": "16:30", "etd": "19:00", "sealing": "15:00", "truck": "16:00", "days": ["MON", "WED", "FRI"], "flightOut": "ZY203" }
+    ]
+  },
+  "airlines": [
+    { "id": "demo_air_one", "name": "Demo Air One", "color": "#4dffb4", "iata": "ZZ", "icao": "ZZZ" },
+    { "id": "demo_air_two", "name": "Demo Air Two", "color": "#ffaa44", "iata": "ZY", "icao": "ZZY" }
+  ],
+  "settings": {
+    "ALERT_DEFAULT_MIN": "15",
+    "TEST_ALERT_FLIGHT": "ZZ101|Demo Air One|14:30"
+  },
+  "boxTime": [
+    { "si": 1, "flight": "ZZ101", "day": "D-1", "override": "10:40" },
+    { "si": 2, "flight": "ZY202", "day": "D", "override": "11:00" }
+  ]
+}
