@@ -181,11 +181,11 @@
 .eb-airline { font-size: calc(10px * var(--scale)); letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.45); line-height: 1; }
 .eb-acts    { display: flex; gap: 3px; margin-top: 3px; flex-wrap: wrap; }
 
-.btn-fr24      { font-family: var(--font-ui); font-size: calc(9px * var(--scale)); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 2px 7px; border-radius: 2px; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; transition: all 0.1s; white-space: nowrap; cursor: pointer; }
-.btn-fr24-live { border: 1px solid rgba(255,140,0,0.4); background: rgba(255,140,0,0.07); color: rgba(255,165,0,0.8); }
-.btn-fr24-live:hover { background: rgba(255,140,0,0.16); color: #ffcc44; }
-.btn-fr24-hist { border: 1px solid rgba(0,212,255,0.25); background: rgba(0,212,255,0.05); color: rgba(0,212,255,0.6); }
-.btn-fr24-hist:hover { background: rgba(0,212,255,0.12); color: var(--accent); }
+.btn-trk      { font-family: var(--font-ui); font-size: calc(9px * var(--scale)); font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 2px 7px; border-radius: 2px; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; transition: all 0.1s; white-space: nowrap; cursor: pointer; }
+.btn-trk-live { border: 1px solid rgba(255,140,0,0.4); background: rgba(255,140,0,0.07); color: rgba(255,165,0,0.8); }
+.btn-trk-live:hover { background: rgba(255,140,0,0.16); color: #ffcc44; }
+.btn-trk-hist { border: 1px solid rgba(0,212,255,0.25); background: rgba(0,212,255,0.05); color: rgba(0,212,255,0.6); }
+.btn-trk-hist:hover { background: rgba(0,212,255,0.12); color: var(--accent); }
 .fr-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: inline-block; animation: frpulse 1.4s infinite; }
 @keyframes frpulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
@@ -357,7 +357,7 @@
   .eb-flight { font-family: var(--font-mono); font-size: 17px; font-weight: 700; line-height: 1; letter-spacing: 0.5px; color: #eef0fa; }
   .eb-airline { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.45); line-height: 1; margin-top: 2px; }
   .eb-acts { display: flex; gap: 7px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
-  .btn-fr24 { font-size: 9px; padding: 6px 11px; min-height: 30px; border-radius: 4px; }
+  .btn-trk { font-size: 9px; padding: 6px 11px; min-height: 30px; border-radius: 4px; }
 
   .mob-hour-sep { display: flex; align-items: center; gap: 8px; padding: 7px 14px 3px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: 1px; }
   .mob-hour-sep::after { content: ''; flex: 1; height: 1px; background: var(--border); }
@@ -916,9 +916,9 @@ function getIcaoCode(flight){
   return code;
 }
 function trackerUrl(tpl,flight){return tpl.replace('{code}',encodeURIComponent(getIcaoCode(flight)));}
-function makeFR24Btns(flight,type){
+function makeTrackerBtns(flight,type){
   if(type!=='eta'&&type!=='etd')return'';
-  return`<a class="btn-fr24 btn-fr24-live" href="${trackerUrl(CFG.TRACKER_LIVE_URL,flight)}" target="_blank" rel="noopener"><span class="fr-dot"></span>Live</a><a class="btn-fr24 btn-fr24-hist" href="${trackerUrl(CFG.TRACKER_HISTORY_URL,flight)}" target="_blank" rel="noopener">History</a>`;
+  return`<a class="btn-trk btn-trk-live" href="${trackerUrl(CFG.TRACKER_LIVE_URL,flight)}" target="_blank" rel="noopener"><span class="fr-dot"></span>Live</a><a class="btn-trk btn-trk-hist" href="${trackerUrl(CFG.TRACKER_HISTORY_URL,flight)}" target="_blank" rel="noopener">History</a>`;
 }
 
 /* TIMELINE */
@@ -959,9 +959,9 @@ function buildTimelineDesktop(inner,evs,nm){
     const b=document.createElement('div');
     b.className=`eblock ${ev.tc}${isPast?' past':''}`;
     b.style.cssText=`left:${LANE+col*(BW+GAP)}px;top:${y}px;width:${BW}px;height:${bh}px;border-left-color:${color};`;
-    const fr24Btns=makeFR24Btns(ev.flight,ev.type);
+    const trkBtns=makeTrackerBtns(ev.flight,ev.type);
     const alPart=ds.showAl?`<div class="eb-airline">${ev.airline}</div>`:'';
-    b.innerHTML=`<div class="eb"><div class="eb-time">${ev.time}</div><div class="eb-type">${ev.lbl}</div><div class="eb-flight">${ev.flight}</div>${alPart}<div class="eb-acts">${fr24Btns}</div></div>`;
+    b.innerHTML=`<div class="eb"><div class="eb-time">${ev.time}</div><div class="eb-type">${ev.lbl}</div><div class="eb-flight">${ev.flight}</div>${alPart}<div class="eb-acts">${trkBtns}</div></div>`;
     b.addEventListener('click',function(e){if(e.target.closest('a'))return;openFlightSheet(ev.flightId);});
     inner.appendChild(b);
   }
@@ -982,8 +982,8 @@ function buildTimelineMobile(inner,evs,nm){
     const b=document.createElement('div');
     b.className=`eblock ${ev.tc}${isPast?' past':''}`;
     b.style.borderLeftColor=color;
-    const fr24Btns=makeFR24Btns(ev.flight,ev.type);
-    b.innerHTML=`<div class="eb"><div class="eb-top-row"><span class="eb-time">${ev.time}</span><span class="eb-type-badge">${ev.lbl}</span><span class="eb-flight" style="color:${color}">${ev.flight}</span></div><div class="eb-airline">${ev.airline}</div><div class="eb-acts">${fr24Btns}</div></div>`;
+    const trkBtns=makeTrackerBtns(ev.flight,ev.type);
+    b.innerHTML=`<div class="eb"><div class="eb-top-row"><span class="eb-time">${ev.time}</span><span class="eb-type-badge">${ev.lbl}</span><span class="eb-flight" style="color:${color}">${ev.flight}</span></div><div class="eb-airline">${ev.airline}</div><div class="eb-acts">${trkBtns}</div></div>`;
     b.addEventListener('click',function(e){if(e.target.closest('a'))return;openFlightSheet(ev.flightId);});
     inner.appendChild(b);
   }
