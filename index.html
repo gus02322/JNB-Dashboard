@@ -17,6 +17,8 @@
 <link rel="manifest" href="manifest.webmanifest">
 <script src="config.js"></script>
 <script src="js/data-source.js"></script>
+<script src="js/live-core.js"></script>
+<script src="js/live.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;500;600;700;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -288,6 +290,30 @@
 #alert-progress-fill { height: 100%; background: #ffaa44; transition: width 1s linear; }
 
 .empty-state { position: sticky; top: 16px; margin: 16px 24px 0 70px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 4px; padding: 14px 16px; z-index: 60; background: var(--surface); }
+/* LIVE TRACKING */
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #4dffb4; box-shadow: 0 0 6px #4dffb4; margin-right: 5px; vertical-align: middle; animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.75); } }
+.eb-sched { font-family: var(--font-mono); font-size: 0.82em; color: rgba(255,255,255,0.45); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.auto-badge { display: inline-block; font-family: var(--font-ui); font-size: 0.85em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 0 5px; border-radius: 3px; color: #13161e; background: #00d4ff; vertical-align: middle; }
+.gap-badge { display: inline-block; font-size: 0.85em; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 0 5px; border-radius: 3px; color: #13161e; background: #ffaa44; vertical-align: middle; }
+#live-status { display: flex; align-items: center; height: 100%; padding: 0 10px; border-right: 1px solid var(--border); font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #4dffb4; white-space: nowrap; flex-shrink: 0; cursor: pointer; }
+#live-status.fallback { color: #ffaa44; }
+#live-status.fallback .live-dot { background: #ffaa44; box-shadow: none; animation: none; }
+#live-credit { position: fixed; right: 8px; bottom: 6px; z-index: 150; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; pointer-events: none; }
+.dr-credit { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 8px; }
+#mob-live { display: none; }
+.fs-t-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+#live-log-overlay { display: none; position: fixed; inset: 0; z-index: 1300; background: rgba(0,0,0,0.7); align-items: flex-start; justify-content: center; padding: 70px 16px 16px; }
+#live-log-overlay.show { display: flex; }
+#live-log-box { background: #1e2230; border: 1px solid var(--border); border-radius: 10px; width: 100%; max-width: 760px; max-height: 80vh; overflow: auto; }
+.ll-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); position: sticky; top: 0; background: #1e2230; }
+.ll-close { cursor: pointer; color: var(--text-dim); }
+#live-log-body { padding: 10px 16px 16px; font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+#live-log-body h3 { font-family: var(--font-ui); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); margin: 14px 0 6px; }
+#live-log-body table { width: 100%; border-collapse: collapse; }
+#live-log-body td, #live-log-body th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+#live-log-body th { color: var(--text-dim); font-weight: 400; }
+@media (max-width: 768px) { #live-status { display: none !important; } #live-credit { display: none !important; } #mob-live.on { display: flex; flex-direction: column; justify-content: center; align-items: center; width: 44px; min-width: 44px; border-left: 1px solid var(--border); font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.5px; text-transform: uppercase; color: #4dffb4; gap: 3px; } #mob-live.fallback { color: #ffaa44; } #mob-live.fallback .live-dot { background: #ffaa44; box-shadow: none; animation: none; } #mob-live .live-dot { margin: 0; } }
 /* TOAST */
 #toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 11px; padding: 8px 16px; border-radius: 3px; z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
@@ -523,6 +549,7 @@
     <div id="sync-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-muted);flex-shrink:0;transition:background 0.4s;"></div>
     <div id="sync-lbl" style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;white-space:nowrap;transition:color 0.4s;">No sync</div>
   </div>
+  <div id="live-status" style="display:none" title="Live aircraft tracking (ADS-B)"><span class="live-dot"></span><span id="live-lbl">Live</span></div>
   <div id="date-picker-wrap">
     <span class="dp-lbl">View</span>
     <div id="date-nav-prev" onclick="shiftDate(-1)" title="Previous day">‹</div>
@@ -554,6 +581,7 @@
       <div class="ndrop-filter" onclick="toggleFilter('seal',!activeFilters.seal)" id="drop-fchk-seal"><span class="ndrop-filter-dot" style="background:#ffaa44"></span><span>Sealing</span><span class="ndrop-check">✓</span></div>
       <div class="ndrop-filter" onclick="toggleFilter('truck',!activeFilters.truck)" id="drop-fchk-truck"><span class="ndrop-filter-dot" style="background:#ff6b6b"></span><span>Truck Dep</span><span class="ndrop-check">✓</span></div>
       <div class="ndrop-sep"></div>
+      <div class="ndrop-item" id="drop-live-log" style="display:none" onclick="openLiveLog();closeHamburger()"><span class="ndrop-dot" style="background:#4dffb4"></span>Live log</div>
       <div class="ndrop-item" onclick="togglePanel();closeHamburger()" style="color:var(--accent);font-size:11px;"><span class="ndrop-dot" style="background:var(--accent)"></span>Toggle Panel</div>
     </div>
   </div>
@@ -689,6 +717,7 @@
   <div class="spill"><div class="lbl">Current</div><div class="val cur" id="mob-cur">-</div></div>
   <div class="spill"><div class="lbl">Next</div><div class="val nxt" id="mob-nxt">-</div></div>
   <div class="spill"><div class="lbl">Events</div><div class="val" id="mob-done">0</div></div>
+  <div id="mob-live" title="Live aircraft tracking (ADS-B)"><span class="live-dot"></span><span id="mob-live-lbl">Live</span></div>
   <div id="mob-sync-status" style="display:flex;flex-direction:column;justify-content:center;align-items:center;width:54px;min-width:54px;flex-shrink:0;border-left:1px solid var(--border);gap:2px;padding:0 4px;">
     <div id="mob-sync-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);transition:background 0.4s;flex-shrink:0;"></div>
     <div id="mob-sync-lbl" style="font-family:var(--font-mono);font-size:7px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;text-align:center;line-height:1.2;white-space:nowrap;overflow:hidden;max-width:48px;"></div>
@@ -736,6 +765,7 @@
     </div>
     <div class="dr-section">
       <div class="dr-section-title">Data Sync</div>
+      <div class="dr-credit" id="dr-credit" style="display:none">Données : adsb.lol</div>
       <button class="dr-btn dr-btn-export" onclick="exportData()">⬇ Export Config</button>
       <button class="dr-btn dr-btn-import" onclick="document.getElementById('file-import').click()">⬆ Import Config</button>
     </div>
@@ -811,6 +841,13 @@
 </div>
 
 <div id="toast"></div>
+<div id="live-credit" style="display:none">Données : adsb.lol</div>
+<div id="live-log-overlay" onclick="if(event.target===this)closeLiveLog()">
+  <div id="live-log-box">
+    <div class="ll-head"><span>Live tracking log</span><span class="ll-close" onclick="closeLiveLog()">✕</span></div>
+    <div id="live-log-body"></div>
+  </div>
+</div>
 
 <script>
 const CFG=window.ANGA_CONFIG;
@@ -895,17 +932,43 @@ function mealTypeVisible(f){
   return true;
 }
 
+function liveOn(){return CFG.flag('LIVE_ADSB');}
+function liveFor(f){return liveOn()&&isToday(viewDate)?AngaLive.forFlight(f):null;}
 function todayEvents(){
-  const day=viewDayOfWeek(),evs=[];
+  const day=viewDayOfWeek(),prevDay=ALLDAYS[(viewDate.getDay()+6)%7],evs=[],m2t=AngaLiveCore.m2t;
   for(const f of flights){
-    if(!f.days.includes(day))continue;
-    if(f.sealing&&activeFilters.seal)evs.push({key:f.id+'_sl',time:f.sealing,type:'seal',lbl:'Sealing',flight:f.flight,airline:f.airline,tc:'type-seal',flightId:f.id});
-    if(f.truck&&activeFilters.truck)evs.push({key:f.id+'_tr',time:f.truck,type:'truck',lbl:'Truck Dep',flight:f.flight,airline:f.airline,tc:'type-truck',flightId:f.id});
-    if(f.eta&&activeFilters.eta)evs.push({key:f.id+'_et',time:f.eta,type:'eta',lbl:'ETA',flight:f.flight,airline:f.airline,tc:'type-eta',flightId:f.id});
-    if(f.etd&&activeFilters.etd)evs.push({key:f.id+'_ed',time:f.etd,type:'etd',lbl:'ETD',flight:f.flight,airline:f.airline,tc:'type-etd',flightId:f.id});
+    const sc=AngaLiveCore.schedule(f),base={flight:f.flight,airline:f.airline,flightId:f.id};
+    if(f.days.includes(day)){
+      const L=liveFor(f);
+      if(f.sealing&&activeFilters.seal){const a=L&&L.sealAuto;evs.push({...base,key:f.id+'_sl',time:a?m2t(L.seal):f.sealing,sched:f.sealing,auto:a,type:'seal',lbl:'Sealing',tc:'type-seal'});}
+      if(f.truck&&activeFilters.truck){const a=L&&L.truckAuto;evs.push({...base,key:f.id+'_tr',time:a?m2t(L.truck):f.truck,sched:f.truck,auto:a,type:'truck',lbl:'Truck Dep',tc:'type-truck'});}
+      if(f.eta&&activeFilters.eta){const a=L&&L.eta!==undefined;evs.push({...base,key:f.id+'_et',time:a?m2t(L.eta):f.eta,sched:f.eta,live:a?(L.landed?'landed':'eta'):null,conf:a?L.confidence:null,type:'eta',lbl:'ETA',tc:'type-eta'});}
+      // An ETD earlier than the ETA is on the next day: shown on the next day's board.
+      if(f.etd&&!sc.nextDayEtd&&activeFilters.etd){
+        const dep=L&&L.departedAt!==undefined,a=L&&L.etd!==undefined;
+        evs.push({...base,key:f.id+'_ed',time:dep?m2t(L.departedAt):a?m2t(L.etd):f.etd,sched:f.etd,live:dep?'dep':a?'etd':null,type:'etd',lbl:'ETD',tc:'type-etd'});
+      }
+    }
+    if(f.days.includes(prevDay)&&sc.nextDayEtd&&f.etd&&activeFilters.etd)
+      evs.push({...base,key:f.id+'_ed1',time:f.etd,sched:f.etd,nextDay:true,type:'etd',lbl:'ETD',tc:'type-etd'});
   }
   evs.sort((a,b)=>t2m(a.time)-t2m(b.time));
   return evs;
+}
+// Time and label of an event block: estimate first, scheduled time kept beside it.
+function evTimeHtml(ev){
+  if(ev.live){const est=ev.live==='dep'||ev.live==='landed'?ev.time:'≈'+ev.time;return`<span class="live-dot" title="Live aircraft tracking (ADS-B)"></span>${est} <span class="eb-sched">sched ${ev.sched}</span>`;}
+  if(ev.auto)return`${ev.time} <span class="eb-sched">sched ${ev.sched}</span>`;
+  if(ev.nextDay)return`${ev.time} <span class="eb-sched" title="Departure of the previous day's flight">prev. day</span>`;
+  return ev.time;
+}
+function evLabel(ev){
+  if(ev.live==='eta')return'Live estimated ETA';
+  if(ev.live==='landed')return'Landed (live)';
+  if(ev.live==='etd')return'Live estimated ETD';
+  if(ev.live==='dep')return'Departed (live)';
+  if(ev.auto)return ev.lbl+' <span class="auto-badge" title="Recalculated from the live estimated ETD">Auto</span>';
+  return ev.lbl;
 }
 
 /* EXTERNAL FLIGHT PAGE */
@@ -961,7 +1024,7 @@ function buildTimelineDesktop(inner,evs,nm){
     b.style.cssText=`left:${LANE+col*(BW+GAP)}px;top:${y}px;width:${BW}px;height:${bh}px;border-left-color:${color};`;
     const trkBtns=makeTrackerBtns(ev.flight,ev.type);
     const alPart=ds.showAl?`<div class="eb-airline">${ev.airline}</div>`:'';
-    b.innerHTML=`<div class="eb"><div class="eb-time">${ev.time}</div><div class="eb-type">${ev.lbl}</div><div class="eb-flight">${ev.flight}</div>${alPart}<div class="eb-acts">${trkBtns}</div></div>`;
+    b.innerHTML=`<div class="eb"><div class="eb-time">${evTimeHtml(ev)}</div><div class="eb-type">${evLabel(ev)}</div><div class="eb-flight">${ev.flight}</div>${alPart}<div class="eb-acts">${trkBtns}</div></div>`;
     b.addEventListener('click',function(e){if(e.target.closest('a'))return;openFlightSheet(ev.flightId);});
     inner.appendChild(b);
   }
@@ -983,7 +1046,7 @@ function buildTimelineMobile(inner,evs,nm){
     b.className=`eblock ${ev.tc}${isPast?' past':''}`;
     b.style.borderLeftColor=color;
     const trkBtns=makeTrackerBtns(ev.flight,ev.type);
-    b.innerHTML=`<div class="eb"><div class="eb-top-row"><span class="eb-time">${ev.time}</span><span class="eb-type-badge">${ev.lbl}</span><span class="eb-flight" style="color:${color}">${ev.flight}</span></div><div class="eb-airline">${ev.airline}</div><div class="eb-acts">${trkBtns}</div></div>`;
+    b.innerHTML=`<div class="eb"><div class="eb-top-row"><span class="eb-time">${evTimeHtml(ev)}</span><span class="eb-type-badge">${evLabel(ev)}</span><span class="eb-flight" style="color:${color}">${ev.flight}</span></div><div class="eb-airline">${ev.airline}</div><div class="eb-acts">${trkBtns}</div></div>`;
     b.addEventListener('click',function(e){if(e.target.closest('a'))return;openFlightSheet(ev.flightId);});
     inner.appendChild(b);
   }
@@ -1171,11 +1234,12 @@ function playAlertSound(duration=3000){
   }catch(e){console.warn('Audio not supported',e);}
 }
 
-function showAlertModal(ev,minsLeft){
+function showAlertModal(ev,minsLeft,badgeText){
   const modal=document.getElementById('alert-modal');
+  document.getElementById('alert-badge').textContent=badgeText||'Upcoming Event';
   document.getElementById('alert-flight-num').textContent=ev.flight;
   document.getElementById('alert-event-type').textContent=ev.lbl.toUpperCase();
-  document.getElementById('alert-time-left').textContent=`in ${minsLeft} min · ${ev.time}`;
+  document.getElementById('alert-time-left').textContent=minsLeft>0?`in ${minsLeft} min · ${ev.time}`:`now · ${ev.time}`;
   document.getElementById('alert-airline-name').textContent=ev.airline.toUpperCase();
   document.getElementById('alert-icon').textContent=ev.type==='truck'?'🚚':'✂️';
   const fill=document.getElementById('alert-progress-fill');
@@ -1239,11 +1303,13 @@ function buildAirlineView(){
     const head=`<div class="al-card-head"><div class="al-card-dot" style="background:${getColor(alName)}"></div><div class="al-card-name">${alName}</div><div class="al-card-meals">${alMeals>0?'🍽 '+alMeals+' meals':''}</div></div>`;
     const rows=flList.map(f=>{
       const sealM=t2m(f.sealing||''),isPast=nm>=0&&sealM>=0&&sealM<nm;
+      const L=liveFor(f),m2t=AngaLiveCore.m2t,nd=AngaLiveCore.schedule(f).nextDayEtd;
+      const chip=(c,bc,icon,sched,est,live,auto,extra)=>`<span class="al-fl-chip" style="color:${c};border-color:${bc}">${live?'<span class="live-dot"></span>':''}${icon} ${est!==null?(live?'≈':'')+est+' <span class="eb-sched">'+sched+'</span>':sched}${auto?' <span class="auto-badge">Auto</span>':''}${extra||''}</span>`;
       const chips=[
-        f.sealing?`<span class="al-fl-chip" style="color:#ffaa44;border-color:rgba(255,170,68,0.3)">✂ ${f.sealing}</span>`:'',
-        f.truck?`<span class="al-fl-chip" style="color:#ff6b6b;border-color:rgba(255,107,107,0.3)">🚚 ${f.truck}</span>`:'',
-        f.eta?`<span class="al-fl-chip" style="color:#4dffb4;border-color:rgba(77,255,180,0.3)">▼ ${f.eta}</span>`:'',
-        f.etd?`<span class="al-fl-chip" style="color:#66aaff;border-color:rgba(102,170,255,0.3)">▲ ${f.etd}</span>`:''
+        f.sealing?chip('#ffaa44','rgba(255,170,68,0.3)','✂',f.sealing,L&&L.sealAuto?m2t(L.seal):null,false,L&&L.sealAuto):'',
+        f.truck?chip('#ff6b6b','rgba(255,107,107,0.3)','🚚',f.truck,L&&L.truckAuto?m2t(L.truck):null,false,L&&L.truckAuto):'',
+        f.eta?chip('#4dffb4','rgba(77,255,180,0.3)','▼',f.eta,L&&L.eta!==undefined?m2t(L.eta):null,!!(L&&L.eta!==undefined),false):'',
+        f.etd?chip('#66aaff','rgba(102,170,255,0.3)','▲',f.etd,L&&L.departedAt!==undefined?m2t(L.departedAt):L&&L.etd!==undefined?m2t(L.etd):null,!!(L&&(L.etd!==undefined||L.departedAt!==undefined)),false,nd?' <span class="eb-sched">+1 day</span>':''):''
       ].filter(Boolean).join('');
       const mealBadge=(f.meals>0)?`<span class="al-fl-meals">${f.meals}</span>`:'';
       const rowClass=isPast?'past-row':'';
@@ -1286,9 +1352,20 @@ function loadBgTheme(){
 function setBgBright(v){bgTheme.bright=parseInt(v);['bg-bright','dr-bg-bright','cfg-bg-bright'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=v;});applyBgTheme();}
 
 /* PRODUCTION VIEW: no Done button */
-// Box Time slots: BoxTime tab of the Sheet. Phase 1 shows the OVERRIDE time only.
+// Box Time slots: BoxTime tab of the Sheet. OVERRIDE wins; otherwise the timing rule gives the
+// default (BOX_TIME_FORMULA flag). With live tracking, D slots follow the live Sealing shift.
 function prodSlots(){
-  return AngaData.get().boxTime.filter(b=>t2m(b.override)>=0).map(b=>({si:b.si,flight:b.flight,day:b.day,time:b.override,airline:AngaData.airlineForFlight(b.flight)}));
+  const st=AngaData.get(),C=AngaLiveCore,bs=C.boxSettings((k,d)=>AngaData.setting(k,d));
+  const nm=isToday(viewDate)?nowMins():-1;
+  return st.boxTime.map(b=>{
+    const row=b.si!==null?st.flightRows.find(r=>r.si===b.si):null;
+    let base=C.t2m(b.override),fromFormula=false;
+    if(base===null&&CFG.flag('BOX_TIME_FORMULA')&&row){const fm=C.boxSlotFormula(row,bs);if(fm&&fm.day===b.day){base=fm.m;fromFormula=true;}}
+    if(base===null)return null;
+    let r={m:base,auto:false,flagged:false};
+    if(liveOn()&&nm>=0&&row&&row.days.includes(viewDayOfWeek()))r=AngaLive.boxSlot(b,row,base,nm);
+    return{si:b.si,flight:b.flight,day:b.day,time:C.m2t(r.m),sched:C.m2t(base),auto:r.auto,flagged:r.flagged,fromFormula,airline:AngaData.airlineForFlight(b.flight)};
+  }).filter(Boolean);
 }
 
 function buildProductionView(){
@@ -1330,7 +1407,7 @@ function buildProductionView(){
     b.style.cssText=`left:${blockLeft}px;top:${yPx}px;width:${blockW}px;height:${bh}px;border-left:${mobile?4:3}px solid ${borderC};opacity:${!isD?'0.65':'1'};`;
     const badge=`<span style="font-size:9px;font-weight:700;font-family:var(--font-mono);padding:1px 5px;border-radius:2px;background:${isD?'rgba(102,170,255,0.2)':'rgba(255,170,68,0.2)'};color:${accentC};border:1px solid ${accentC}44;letter-spacing:1px;">${s.day}</span>`;
     const alPart=ds.showAl&&s.airline?`<div class="eb-airline">${s.airline}</div>`:'';
-    b.innerHTML=`<div class="eb"><div class="eb-time" style="display:flex;align-items:center;gap:5px;">${s.time} ${badge}</div><div class="eb-type" style="color:${accentC};">Box Time</div><div class="eb-flight">${s.flight}</div>${alPart}</div>`;
+    b.innerHTML=`<div class="eb"><div class="eb-time" style="display:flex;align-items:center;gap:5px;">${s.time} ${badge}${s.auto?' <span class="eb-sched">sched '+s.sched+'</span>':''}</div><div class="eb-type" style="color:${accentC};">Box Time${s.auto?' <span class="auto-badge" title="Recalculated from the live estimated ETD">Auto</span>':''}${s.flagged?' <span class="gap-badge" title="The live estimate moved this flight by 30 min or more. This slot is not moved: check it.">Check</span>':''}${s.fromFormula?' <span class="eb-sched" title="No OVERRIDE in the BoxTime tab: default from the timing rule">rule</span>':''}</div><div class="eb-flight">${s.flight}</div>${alPart}</div>`;
     const flMatch=flights.find(x=>x.flight===s.flight);
     if(flMatch)b.addEventListener('click',()=>openFlightSheet(flMatch.id));
     inner.appendChild(b);
@@ -1456,12 +1533,30 @@ function openFlightSheet(flightId){
     {key:'truck', label:'Truck Dep',   icon:'\ud83d\ude9a', color:'#ff6b6b', border:'rgba(255,107,107,0.5)'},
     {key:'etd',   label:'ETD Depart',  icon:'\ud83d\udef3\ufe0f', color:'#66aaff', border:'rgba(102,170,255,0.5)'},
   ];
+  const L=liveFor(f),m2t=AngaLiveCore.m2t,sc=AngaLiveCore.schedule(f);
+  const CONF={far:'far from the airport',approach:'on approach',final:'final approach',landed:'landed'};
+  function liveOf(key){
+    if(!L)return null;
+    if(key==='eta'&&L.eta!==undefined)return{t:(L.landed?'':'≈')+m2t(L.eta),label:L.landed?'Landed (live)':'Live estimated ETA',dot:true,note:CONF[L.confidence]||''};
+    if(key==='etd'&&L.departedAt!==undefined)return{t:m2t(L.departedAt),label:'Departed (live)',dot:true,note:''};
+    if(key==='etd'&&L.etd!==undefined)return{t:'≈'+m2t(L.etd),label:'Live estimated ETD',dot:true,note:L.dayStop?'day stop, ETD kept':''};
+    if(key==='sealing'&&L.sealAuto)return{t:m2t(L.seal),label:'Sealing',auto:true,note:''};
+    if(key==='truck'&&L.truckAuto)return{t:m2t(L.truck),label:'Truck Dep',auto:true,note:''};
+    return null;
+  }
   document.getElementById('fs-timings').innerHTML=timings.map(t=>{
-    const val=f[t.key];const has=val&&val.trim();
+    const val=f[t.key];const has=val&&val.trim();const lv=has?liveOf(t.key):null;
+    const nd=t.key==='etd'&&sc.nextDayEtd?' <span class="eb-sched">+1 day</span>':'';
+    if(lv)return`<div class="fs-timing-card" style="border-left-color:${t.border}">
+      <div class="fs-t-icon">${t.icon}</div>
+      <div class="fs-t-label" style="color:${t.color}">${lv.dot?'<span class="live-dot"></span>':''}${lv.label}${lv.auto?' <span class="auto-badge">Auto</span>':''}</div>
+      <div class="fs-t-time">${lv.t}</div>
+      <div class="fs-t-sub">Scheduled ${val}${nd}${lv.note?' · '+lv.note:''}</div>
+    </div>`;
     return`<div class="fs-timing-card${has?'':' no-time'}" style="border-left-color:${t.border}">
       <div class="fs-t-icon">${t.icon}</div>
       <div class="fs-t-label" style="color:${t.color}">${t.label}</div>
-      <div class="fs-t-time${has?'':' no-val'}">${has?val:'-'}</div>
+      <div class="fs-t-time${has?'':' no-val'}">${has?val:'-'}${nd}</div>
     </div>`;
   }).join('');
   document.getElementById('fs-actions').innerHTML=
@@ -1531,7 +1626,8 @@ function pickFlight(id){
 }
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
-    if(document.getElementById('search-overlay').classList.contains('show'))closeSearch();
+    if(document.getElementById('live-log-overlay').classList.contains('show'))closeLiveLog();
+    else if(document.getElementById('search-overlay').classList.contains('show'))closeSearch();
     else if(document.getElementById('flight-sheet').classList.contains('show'))closeFlightSheet();
   }
 });
@@ -1555,6 +1651,51 @@ function scrollToNow(){
 
 /* BG SWATCHES */
 function initBgSwatches(){document.querySelectorAll('.bg-sw').forEach(sw=>{sw.addEventListener('click',()=>{bgTheme.hue=parseInt(sw.dataset.h);applyBgTheme();});});}
+
+/* LIVE TRACKING UI */
+function updateLiveIndicator(){
+  const on=liveOn();
+  [['live-status','flex'],['live-credit','block'],['drop-live-log','flex'],['dr-credit','block']].forEach(([id,d])=>{const el=document.getElementById(id);if(el)el.style.display=on?d:'none';});
+  if(!on)return;
+  const st=AngaLive.status(),ok=st.state==='ok',el=document.getElementById('live-status'),pad=v=>String(v).padStart(2,'0');
+  el.classList.toggle('fallback',!ok);
+  const ml=document.getElementById('mob-live');if(ml){ml.classList.add('on');ml.classList.toggle('fallback',!ok);document.getElementById('mob-live-lbl').textContent=ok?'Live':'Sched.';}
+  document.getElementById('live-lbl').textContent=ok?'Live':st.state==='starting'?'Live ...':'Scheduled times';
+  const at=st.at?new Date(st.at):null;
+  el.title=ok?'Live aircraft tracking (ADS-B), updated '+pad(at.getHours())+':'+pad(at.getMinutes())+'. Estimates, not official times.'
+    :'Live aircraft tracking unavailable: scheduled times shown'+(st.error?' ('+st.error+')':'');
+}
+function onLiveUpdate(){
+  updateLiveIndicator();
+  refreshCurrentView();
+  const tight=AngaLive.takeTightAlerts();
+  if(tight.length&&alertSettings.on){const t=tight[0];showAlertModal(t,t.minsLeft,'Slot too tight');}
+}
+function esc(v){return String(v===undefined||v===null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function openLiveLog(){
+  const pad=v=>String(v).padStart(2,'0'),C=AngaLiveCore;
+  const st=AngaLive.status();
+  let h=`<div>Status: ${esc(st.state)}${st.error?' ('+esc(st.error)+')':''}. Live estimates come from live aircraft tracking (ADS-B): they are estimates, not official times.</div>`;
+  const log=AngaLive.log();
+  h+='<h3>Recalculations (this screen)</h3>';
+  h+=log.length?'<table><tr><th>Time</th><th>Flight</th><th>Field</th><th>Old</th><th>New</th><th>Reason</th></tr>'+log.map(e=>{const d=new Date(e.at);return`<tr><td>${pad(d.getHours())}:${pad(d.getMinutes())}</td><td>${esc(e.flight)}</td><td>${esc(e.field)}</td><td>${esc(e.old)}</td><td>${esc(e.new)}</td><td>${esc(e.reason)}</td></tr>`;}).join('')+'</table>':'<div>No recalculation yet.</div>';
+  if(CFG.flag('DIAGNOSTIC')){
+    const dg=AngaLive.diagnostic();
+    h+='<h3>Diagnostic: expected flights</h3>';
+    h+=dg.rows.length?'<table><tr><th>Flight</th><th>Callsigns tried</th><th>Received</th><th>Route</th><th>Dist nm</th><th>Live ETA</th><th>Note</th></tr>'+dg.rows.map(r=>`<tr><td>${esc(r.flight)}</td><td>${esc(r.candidates.join(' '))}</td><td>${esc(r.found.join(' '))||'none'}</td><td>${esc(r.route||'')}</td><td>${esc(r.dist??'')}</td><td>${esc(r.eta||'')} ${esc(r.confidence||'')}</td><td>${esc(r.reason)}</td></tr>`).join('')+'</table>':'<div>No flight in the tracking window.</div>';
+    h+=`<h3>Callsigns seen near the airport</h3><div>${esc(dg.near.join(' '))||'none'}</div>`;
+    const bs=C.boxSettings((k,d)=>AngaData.setting(k,d)),data=AngaData.get();
+    h+='<h3>Box Time: rule vs OVERRIDE (minutes)</h3><table><tr><th>SI</th><th>Flight</th><th>Day</th><th>Override</th><th>Rule</th><th>Gap</th></tr>'+data.boxTime.map(b=>{
+      const row=b.si!==null?data.flightRows.find(r=>r.si===b.si):null,fm=row?C.boxSlotFormula(row,bs):null,ov=C.t2m(b.override);
+      const gap=fm&&ov!==null&&fm.day===b.day?ov-fm.m:'';
+      return`<tr><td>${esc(b.si??'')}</td><td>${esc(b.flight)}</td><td>${esc(b.day)}</td><td>${esc(b.override)}</td><td>${fm?esc(fm.day+' '+C.m2t(fm.m)):'no row'}</td><td>${fm&&fm.day!==b.day?'day differs':esc(gap)}</td></tr>`;
+    }).join('')+'</table>';
+  }
+  document.getElementById('live-log-body').innerHTML=h;
+  document.getElementById('live-log-overlay').classList.add('show');
+}
+function closeLiveLog(){document.getElementById('live-log-overlay').classList.remove('show');}
+(function(){const el=document.getElementById('live-status');if(el)el.addEventListener('click',openLiveLog);})();
 
 /* INIT */
 document.title=CFG.PRODUCT_NAME;
@@ -1580,7 +1721,9 @@ const _hv=document.getElementById('ht-v');if(_hv)_hv.textContent=ds.blockH;
 const _sa=document.getElementById('show-al');if(_sa)_sa.checked=ds.showAl;
 updateDateDisplay();
 buildTimeline();updateClock();
-fetchGSheet();
+AngaLive.onUpdate(onLiveUpdate);
+updateLiveIndicator();
+fetchGSheet().then(function(){if(liveOn())AngaLive.start(AngaData,CFG);});
 
 setInterval(updateClock,1000);
 setInterval(()=>{
