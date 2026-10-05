@@ -287,7 +287,7 @@
 #alert-progress-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; background: rgba(255,170,68,0.2); border-radius: 0 0 12px 12px; overflow: hidden; }
 #alert-progress-fill { height: 100%; background: #ffaa44; transition: width 1s linear; }
 
-.empty-state { position: absolute; top: 24px; left: 70px; right: 24px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 4px; padding: 14px 16px; z-index: 60; background: var(--surface); }
+.empty-state { position: sticky; top: 16px; margin: 16px 24px 0 70px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 4px; padding: 14px 16px; z-index: 60; background: var(--surface); }
 /* TOAST */
 #toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 11px; padding: 8px 16px; border-radius: 3px; z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 #toast.show { opacity: 1; }
