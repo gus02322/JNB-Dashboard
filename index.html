@@ -1829,22 +1829,24 @@ function renderFlightView(){
   const mt=(f.mealType||'').toLowerCase();
   const pill=live?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
     :status&&status.state!=='ok'&&liveOn()?'<span class="fv-pill fallback">Scheduled times</span>':'<span class="fv-pill sched">Scheduled</span>';
-  const dir=sc.eta!==null?'inbound':'departure only';
+  const dir=sc.eta===null?'departure only':f.flightIn?'arrives as '+esc(f.flightIn)+', departs as '+esc(f.flight):'inbound';
   // schematic map: hub on the right, aircraft placed by its distance to the hub (not to scale)
   const hub=CFG&&AngaData.setting('AIRPORT_ICAO','')||'HUB';
   const P0=[40,150],P1=[300,8],P2=[548,118];
   const q=(u)=>[(1-u)*(1-u)*P0[0]+2*(1-u)*u*P1[0]+u*u*P2[0],(1-u)*(1-u)*P0[1]+2*(1-u)*u*P1[1]+u*u*P2[1]];
-  let u=null,posTxt='Waiting for a live position: the aircraft is not in live coverage yet',waiting=true;
+  let u=null,posTxt='Waiting for a live position: the aircraft is not in live coverage yet',waiting=true,confirmed=true;
   if(L&&L.departedAt!==undefined){u=1;waiting=false;posTxt='Departed '+m2t(L.departedAt)+' (live)';}
   else if(live&&L.landed){u=1;waiting=false;posTxt='Landed (live)';}
   else if(live&&L.pos){waiting=false;u=Math.min(0.96,Math.max(0.04,1-L.pos.dist/400));const alt=typeof L.pos.alt==='number'?' · FL'+String(Math.round(L.pos.alt/100)).padStart(3,'0'):'';posTxt=`${Math.round(L.pos.dist)} nm from ${esc(hub)} · ${Math.round(L.pos.gs||0)} kt${alt}`;}
   else if(!liveOn())posTxt='Live tracking is off: scheduled times shown';
   else if(sc.eta===null)posTxt='Departure only: no inbound aircraft to track';
+  else if(isToday(viewDate)&&sc.etd!==null&&nowMins()>sc.etd+30){waiting=false;posTxt='Departure scheduled at '+m2t(sc.etd)+': no live confirmation';}
+  else if(isToday(viewDate)&&nowMins()>sc.eta+30){waiting=false;u=1;confirmed=false;posTxt='Arrival scheduled at '+m2t(sc.eta)+': no live confirmation';}
   else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))+' before the scheduled ETA';
   let travelled='',plane='';
-  if(u!==null){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round"/>`;
+  if(u!==null){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="${confirmed?'#00d4ff':'#4a5363'}" stroke-width="2.5" stroke-linecap="round"/>`;
     const a=q(u),b=q(Math.min(1,u+0.01)),ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
-    plane=u>=1?`<g transform="translate(${P2[0]},${P2[1]-22})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#4dffb4"/></g>`:`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#eef0fa" stroke="#00d4ff" stroke-width="1"/></g>`;}
+    plane=u>=1?`<g transform="translate(${P2[0]},${P2[1]-22})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="${confirmed?'#4dffb4':'#5f6878'}"/></g>`:`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#eef0fa" stroke="#00d4ff" stroke-width="1"/></g>`;}
   else if(waiting){plane=`<g transform="translate(${P0[0]+14},${P0[1]-6}) rotate(-25)" opacity="0.45"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#8a93a6" stroke-width="1.4"/></g>`;}
   const map=`<div class="fv-map"><svg viewBox="0 0 600 190" preserveAspectRatio="none">
     <path d="M${P0} Q${P1} ${P2}" fill="none" stroke="#3a4352" stroke-width="1.5" stroke-dasharray="4 5"/>
@@ -1899,7 +1901,8 @@ function tickFlightView(){
     if(!isToday(viewDate)||headM===null)cnt.textContent='';
     else{const s=Math.round((headM-nowMins())*60);
       if(live&&L.landed)cnt.textContent='Landed';
-      else if(s<=0)cnt.textContent=sc.eta!==null?'Due now or arrived':'Due now or departed';
+      else if(s<=0){const nm=nowMins();
+        cnt.textContent=sc.etd!==null&&nm>t.etd+15?'Departure time passed':sc.eta!==null&&nm>t.eta+15?'Arrival time passed':'Due now';}
       else{const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;cnt.textContent='in '+(h?h+' h ':'')+m+' min'+(h?'':' '+ss+' s');}}
   }
   if(upd){

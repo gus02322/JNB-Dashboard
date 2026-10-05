@@ -90,7 +90,8 @@
       return s.eta !== null && s.eta >= nm - p.before && s.eta <= nm + p.after && !fs(f.id).landedAt;
     });
     const csMap = {};
-    inbound.forEach(f => { csMap[f.id] = C.callsignCandidates(f.flight, prefixes); });
+    // The arriving aircraft flies under FLIGHT_IN when set; Flight is the departing flight number.
+    inbound.forEach(f => { csMap[f.id] = C.callsignCandidates(f.flightIn || f.flight, prefixes); });
     const cs = [...new Set(Object.values(csMap).flat())].slice(0, 30);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
@@ -128,7 +129,7 @@
       const st = fs(f.id), cands = csMap[f.id];
       const found = cands.filter(c => (payload.cs[c] || []).length || point.some(a => C.cleanCallsign(a.flight) === c));
       const ac = pickAircraft(cands.map(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c))));
-      const row = { flight: f.flight, candidates: cands, found, reason: '' };
+      const row = { flight: f.flightIn ? f.flight + ' (arrives as ' + f.flightIn + ')' : f.flight + ' (FLIGHT_IN empty)', candidates: cands, found, reason: '' };
       if (!cands.length) row.reason = 'no ICAO prefix in the Airlines tab';
       if (!ac) { row.reason = row.reason || 'not found'; rows.push(row); return; }
       const callsign = C.cleanCallsign(ac.flight) || found[0];

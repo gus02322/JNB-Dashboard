@@ -83,3 +83,10 @@ test('round5 and m2t never promise minute accuracy', () => {
   assert.equal(C.m2t(C.round5(612)), '10:10');
   assert.equal(C.m2t(1440 + 45), '00:45');
 });
+
+test('an aircraft flying away from the airport gives no ETA', () => {
+  // 1 degree north of the airport: heading south (180) approaches, heading north (0) flies away.
+  assert.equal(C.liveEta({ lat: 1, lon: 0, gs: 300, alt_baro: 20000, track: 180 }, 600, P).usable, true);
+  assert.equal(C.liveEta({ lat: 1, lon: 0, gs: 300, alt_baro: 20000, track: 0 }, 600, P).reason, 'flying away from the airport');
+  assert.equal(C.liveEta({ lat: 1, lon: 0, gs: 300, alt_baro: 20000 }, 600, P).usable, true); // no track: not refused
+});
