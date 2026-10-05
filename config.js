@@ -39,6 +39,7 @@
       BOX_TIME_FORMULA: false, // phase 2: Box Time default from the timing rule
       DIAGNOSTIC: false,       // phase 2: callsign diagnostic panel
       CONFIG_PANEL: false,     // phase 4: online configuration panel
+      NEW_LOOK: false,         // refreshed visual: lighter background, Inter font, panel closed by default
     },
   };
 
@@ -62,4 +63,5 @@
   };
 
   window.ANGA_CONFIG = CONFIG;
+  if (CONFIG.flag('NEW_LOOK')) document.documentElement.classList.add('anga-v2');
 })();
