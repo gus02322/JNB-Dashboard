@@ -35,7 +35,7 @@
     // Feature flags. Off in production until validated.
     // Override on one screen with ?ff=NAME1,NAME2 (remembered on that device), ?ff=none to reset.
     FLAGS: {
-      LIVE_ADSB: false,        // phase 2: live estimated ETA / ETD
+      LIVE_ADSB: true,         // phase 2: live estimated ETA / ETD (validated on 5 Oct)
       BOX_TIME_FORMULA: false, // phase 2: Box Time default from the timing rule
       DIAGNOSTIC: false,       // phase 2: callsign diagnostic panel
       CONFIG_PANEL: false,     // phase 4: online configuration panel
