@@ -1827,7 +1827,8 @@ function renderFlightView(){
   const f=flights.find(x=>x.id===fvId);if(!f){closeFlightView();return;}
   const {C,sc,L,live,t,boxes,nm,status}=fvModel(f),m2t=C.m2t,color=getColor(f.airline);
   const mt=(f.mealType||'').toLowerCase();
-  const pill=live?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
+  const departed=!!(L&&L.departedAt!==undefined),inFlight=departed&&!!L.out;
+  const pill=inFlight?'<span class="fv-pill live"><span class="live-dot"></span>Live · in flight</span>':departed?'<span class="fv-pill live">Departed</span>':live?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
     :status&&status.state!=='ok'&&liveOn()?'<span class="fv-pill fallback">Scheduled times</span>':'<span class="fv-pill sched">Scheduled</span>';
   const dir=sc.eta===null?'departure only':f.flightIn?'arrives as '+esc(f.flightIn)+', departs as '+esc(f.flight):'inbound';
   // schematic map: hub on the right, aircraft placed by its distance to the hub (not to scale)
@@ -1835,7 +1836,11 @@ function renderFlightView(){
   const P0=[40,150],P1=[300,8],P2=[548,118];
   const q=(u)=>[(1-u)*(1-u)*P0[0]+2*(1-u)*u*P1[0]+u*u*P2[0],(1-u)*(1-u)*P0[1]+2*(1-u)*u*P1[1]+u*u*P2[1]];
   let u=null,posTxt='Waiting for a live position: the aircraft is not in live coverage yet',waiting=true,confirmed=true;
-  if(L&&L.departedAt!==undefined){u=1;waiting=false;posTxt='Departed '+m2t(L.departedAt)+' (live)';}
+  let outbound=false;
+  const fl=(alt)=>typeof alt==='number'?' · FL'+String(Math.round(alt/100)).padStart(3,'0'):'';
+  if(inFlight){waiting=false;outbound=true;u=1-Math.min(0.96,Math.max(0.04,L.out.dist/400));
+    posTxt=`In flight · ${Math.round(L.out.dist)} nm from ${esc(hub)} · ${Math.round(L.out.gs||0)} kt${fl(L.out.alt)} · took off ${L.depEstimated?'about ':''}${m2t(L.departedAt)}`;}
+  else if(departed){waiting=false;posTxt='Took off '+(L.depEstimated?'about ':'')+m2t(L.departedAt)+' (live), now out of live coverage';}
   else if(live&&L.landed){u=1;waiting=false;posTxt='Landed (live)';}
   else if(live&&L.pos){waiting=false;u=Math.min(0.96,Math.max(0.04,1-L.pos.dist/400));const alt=typeof L.pos.alt==='number'?' · FL'+String(Math.round(L.pos.alt/100)).padStart(3,'0'):'';posTxt=`${Math.round(L.pos.dist)} nm from ${esc(hub)} · ${Math.round(L.pos.gs||0)} kt${alt}`;}
   else if(!liveOn())posTxt='Live tracking is off: scheduled times shown';
@@ -1844,7 +1849,11 @@ function renderFlightView(){
   else if(isToday(viewDate)&&nowMins()>sc.eta+30){waiting=false;u=1;confirmed=false;posTxt='Arrival scheduled at '+m2t(sc.eta)+': no live confirmation';}
   else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))+' before the scheduled ETA';
   let travelled='',plane='';
-  if(u!==null){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="${confirmed?'#00d4ff':'#4a5363'}" stroke-width="2.5" stroke-linecap="round"/>`;
+  if(u!==null&&outbound){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u+(1-u)*i/40).map(v=>v.toFixed(1)).join(','));
+    travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="#66aaff" stroke-width="2.5" stroke-linecap="round"/>`;
+    const a=q(u),b=q(Math.max(0,u-0.01)),ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
+    plane=`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#eef0fa" stroke="#66aaff" stroke-width="1"/></g>`;}
+  else if(u!==null){const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));travelled=`<polyline points="${pts.join(' ')}" fill="none" stroke="${confirmed?'#00d4ff':'#4a5363'}" stroke-width="2.5" stroke-linecap="round"/>`;
     const a=q(u),b=q(Math.min(1,u+0.01)),ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
     plane=u>=1?`<g transform="translate(${P2[0]},${P2[1]-22})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="${confirmed?'#4dffb4':'#5f6878'}"/></g>`:`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#eef0fa" stroke="#00d4ff" stroke-width="1"/></g>`;}
   else if(waiting){plane=`<g transform="translate(${P0[0]+14},${P0[1]-6}) rotate(-25)" opacity="0.45"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#8a93a6" stroke-width="1.4"/></g>`;}
@@ -1857,8 +1866,8 @@ function renderFlightView(){
     <text x="${P2[0]}" y="${P2[1]+26}" fill="#8a93a6" font-size="11" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="1">${esc(hub)}</text>
   </svg><div class="fv-clock" id="fv-clock"></div><div class="fv-pos${waiting?' fv-wait':''}">${posTxt}</div><div class="fv-note">Schematic view, not to scale</div></div>`;
   // headline: ETA (or ETD for a departure-only flight)
-  const headKey=sc.eta!==null?'eta':'etd',headM=t[headKey];
-  const headLbl=headKey==='eta'?(live?(L.landed?'Landed (live)':'Live estimated ETA'):'Scheduled ETA'):(L&&L.etd!==undefined?'Live estimated ETD':'Scheduled ETD');
+  const headKey=departed||sc.eta===null?'etd':'eta',headM=t[headKey];
+  const headLbl=departed?'Took off (live'+(L.depEstimated?', estimated':'')+')':headKey==='eta'?(live?(L.landed?'Landed (live)':'Live estimated ETA'):'Scheduled ETA'):(L&&L.etd!==undefined?'Live estimated ETD':'Scheduled ETD');
   const eta=`<div class="fv-eta"><div><div class="fv-eta-lbl${live?'':' sched'}">${headLbl}</div><div class="fv-eta-time">${headM===null?'-':m2t(headM)}</div></div>
     <div class="fv-eta-right"><div class="fv-count" id="fv-count"></div><div class="fv-upd" id="fv-upd"></div></div></div>`;
   // cards
@@ -1871,7 +1880,7 @@ function renderFlightView(){
     ${card('#ffaa44','Sealing',t.seal,sc.seal,L&&L.sealAuto?autoB:'')}
     ${card('#c8aaff','Box Time',box?box.m:null,null,box&&box.auto?autoB:box&&box.flagged?' <span class="gap-badge">Check</span>':'',box?(box.day==='D-1'?'Day before (D-1)':'Same day (D)')+(box.auto?' · scheduled '+m2t(box.base):'')+(boxes.length>1?' · +'+(boxes.length-1)+' slot':''):'No slot')}
     ${card('#ff6b6b','Truck Departure',t.truck,sc.truck,L&&L.truckAuto?autoB:'')}
-    ${card('#66aaff','ETD',t.etd,sc.etd,L&&(L.etd!==undefined||L.departedAt!==undefined)?liveB:'',(L&&L.departedAt!==undefined?'Departed (live)':'Scheduled '+(sc.etd===null?'-':m2t(sc.etd)))+nd)}
+    ${card('#66aaff','ETD',t.etd,sc.etd,L&&(L.etd!==undefined||L.departedAt!==undefined)?liveB:'',(L&&L.departedAt!==undefined?'Took off (live'+(L.depEstimated?', estimated':'')+') · scheduled '+(sc.etd===null?'-':m2t(sc.etd)):'Scheduled '+(sc.etd===null?'-':m2t(sc.etd)))+nd)}
   </div>`;
   // mini timeline
   const pts=[['#4dffb4',t.eta,'ETA'],['#ffaa44',t.seal,'Sealing'],['#ff6b6b',t.truck,'Truck'],['#66aaff',t.etd,'ETD']].filter(p=>p[1]!==null&&p[1]!==undefined);
@@ -1896,9 +1905,11 @@ function tickFlightView(){
   const n=new Date(),pad=v=>String(v).padStart(2,'0');
   const ck=document.getElementById('fv-clock');if(ck)ck.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
   const {sc,L,live,t}=fvModel(f),cnt=document.getElementById('fv-count'),upd=document.getElementById('fv-upd');
-  const headM=sc.eta!==null?t.eta:t.etd;
+  const departed=!!(L&&L.departedAt!==undefined);
+  const headM=departed||sc.eta===null?t.etd:t.eta;
   if(cnt){
-    if(!isToday(viewDate)||headM===null)cnt.textContent='';
+    if(departed)cnt.textContent=L.out?'In flight':'Departed';
+    else if(!isToday(viewDate)||headM===null)cnt.textContent='';
     else{const s=Math.round((headM-nowMins())*60);
       if(live&&L.landed)cnt.textContent='Landed';
       else if(s<=0){const nm=nowMins();
@@ -1906,7 +1917,8 @@ function tickFlightView(){
       else{const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;cnt.textContent='in '+(h?h+' h ':'')+m+' min'+(h?'':' '+ss+' s');}}
   }
   if(upd){
-    if(live&&L.seenAt){const a=Math.max(0,Math.round((Date.now()-L.seenAt)/1000));upd.textContent='Position updated '+(a<90?a+' s':Math.round(a/60)+' min')+' ago · live aircraft tracking (ADS-B)';}
+    if(departed&&L.out&&L.out.seenAt){const a=Math.max(0,Math.round((Date.now()-L.out.seenAt)/1000));upd.textContent='Position updated '+(a<90?a+' s':Math.round(a/60)+' min')+' ago · live aircraft tracking (ADS-B)';}
+    else if(live&&L.seenAt){const a=Math.max(0,Math.round((Date.now()-L.seenAt)/1000));upd.textContent='Position updated '+(a<90?a+' s':Math.round(a/60)+' min')+' ago · live aircraft tracking (ADS-B)';}
     else upd.textContent='Scheduled time from the planning';
   }
 }
