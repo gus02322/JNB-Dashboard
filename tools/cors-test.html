@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Live tracking CORS test</title>
+<style>
+  :root { --bg: #13161e; --text: #d8dce8; --dim: #8a90a0; --ok: #4dffb4; --ko: #ff6b6b; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 ui-monospace, monospace; margin: 0; padding: 16px; }
+  h1 { font-size: 16px; } .dim { color: var(--dim); }
+  .row { border: 1px solid #323848; border-radius: 6px; padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+  .ok { color: var(--ok); } .ko { color: var(--ko); }
+  button { font: inherit; padding: 6px 14px; cursor: pointer; }
+  pre { white-space: pre-wrap; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<h1>Live tracking: browser access test</h1>
+<p class="dim">Calls the tracking API directly from this page, as the dashboard would. Results are shown below and in the console (F12).</p>
+<p><label>Callsign <input id="cs" value="UAE768" size="10"></label> <button id="run">Run tests</button></p>
+<div id="out"></div>
+<script>
+const API = 'https://api.adsb.lol';
+const out = document.getElementById('out');
+function show(title, ok, detail) {
+  const d = document.createElement('div'); d.className = 'row';
+  d.innerHTML = '<b class="' + (ok ? 'ok' : 'ko') + '">' + (ok ? 'OK' : 'FAILED') + '</b> ' + title + '<pre></pre>';
+  d.querySelector('pre').textContent = detail; out.appendChild(d);
+  console[ok ? 'log' : 'error']('[CORS test]', ok ? 'OK' : 'FAILED', title, '\n' + detail);
+}
+async function test(title, url, opts) {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url, opts);
+    const ms = Math.round(performance.now() - t0);
+    const text = await r.text();
+    let summary = 'HTTP ' + r.status + ' in ' + ms + ' ms';
+    try {
+      const j = JSON.parse(text);
+      const ac = j.ac || [];
+      summary += '\naircraft returned: ' + ac.length;
+      if (ac[0]) summary += '\nfirst aircraft fields: ' + Object.keys(ac[0]).join(', ') +
+        '\nflight=' + JSON.stringify(ac[0].flight) + ' lat=' + ac[0].lat + ' lon=' + ac[0].lon + ' gs=' + ac[0].gs + ' alt_baro=' + ac[0].alt_baro + ' seen_pos=' + ac[0].seen_pos;
+      if (!ac.length) summary += '\nbody: ' + text.slice(0, 400);
+    } catch (e) { summary += '\nbody (not JSON): ' + text.slice(0, 400); }
+    show(title, r.ok, summary);
+  } catch (e) {
+    show(title, false, String(e) + '\nA "TypeError: Failed to fetch" here usually means the browser blocked the call (CORS). The console shows the exact reason.');
+  }
+}
+document.getElementById('run').onclick = async () => {
+  out.innerHTML = '';
+  const cs = document.getElementById('cs').value.trim().toUpperCase();
+  console.log('[CORS test] page origin:', location.origin);
+  await test('GET /v2/callsign/' + cs + ' (main endpoint)', API + '/v2/callsign/' + encodeURIComponent(cs));
+  await test('GET /v2/point (aircraft around a point, 25 nm)', API + '/v2/point/0/0/25');
+  await test('POST /api/0/routeset (route check, needs a preflight)', API + '/api/0/routeset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ planes: [{ callsign: cs, lat: 0, lng: 0 }] }),
+  });
+};
+</script>
+</body>
+</html>
