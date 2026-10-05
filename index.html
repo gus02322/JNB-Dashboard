@@ -3,7 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>JNB Catering Ops — Control Board</title>
+<title>ANGA</title>
+<meta name="description" content="Live catering operations, on one screen.">
+<meta name="application-name" content="ANGA">
+<meta name="apple-mobile-web-app-title" content="ANGA">
+<meta name="theme-color" content="#13161e">
+<meta property="og:title" content="ANGA">
+<meta property="og:description" content="Live catering operations, on one screen.">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<script src="config.js"></script>
+<script src="js/data-source.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;500;600;700;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -33,7 +46,8 @@
   backdrop-filter: blur(8px); display: flex; align-items: center;
   height: calc(52px * var(--scale));
 }
-.logo { padding: 0 calc(20px * var(--scale)); font-family: var(--font-ui); font-weight: 900; font-size: calc(17px * var(--scale)); letter-spacing: calc(3px * var(--scale)); text-transform: uppercase; color: var(--accent); border-right: 1px solid var(--border); height: 100%; display: flex; align-items: center; white-space: nowrap; }
+.logo { padding: 0 calc(20px * var(--scale)); font-family: var(--font-ui); font-weight: 700; font-size: calc(22px * var(--scale)); letter-spacing: 0.14em; text-transform: uppercase; color: #eef0fa; border-right: 1px solid var(--border); height: 100%; display: flex; align-items: center; white-space: nowrap; text-decoration: none; }
+.logo-dot { width: 0.26em; height: 0.26em; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px rgba(0,212,255,0.6); align-self: center; margin-top: 0.42em; margin-left: 0.02em; flex-shrink: 0; }
 #date-str { padding: 0 calc(16px * var(--scale)); font-family: var(--font-mono); font-size: calc(12px * var(--scale)); color: var(--text-dim); border-right: 1px solid var(--border); height: 100%; display: flex; align-items: center; }
 #clock { font-family: var(--font-mono); font-size: calc(21px * var(--scale)); color: var(--now-line); letter-spacing: calc(2px * var(--scale)); padding: 0 calc(18px * var(--scale)); border-right: 1px solid var(--border); height: 100%; display: flex; align-items: center; }
 
@@ -299,7 +313,7 @@
 @media (max-width: 768px) {
   :root { --scale: 1; }
   #topbar { height: 48px; }
-  .logo { font-size: 11px; letter-spacing: 1.5px; padding: 0 8px; flex-shrink: 0; }
+  .logo { font-size: 17px; letter-spacing: 0.12em; padding: 0 10px; flex-shrink: 0; }
   #date-str { display: none; }
   #clock { font-size: 17px; padding: 0 10px; letter-spacing: 1px; flex-shrink: 0; border-right: 1px solid var(--border); }
   #status-bar { display: none; }
@@ -320,7 +334,7 @@
     #timeline-view { padding-top: 48px; padding-bottom: 60px; }
   #right-panel { display: none !important; }
   /* Hamburger always visible on mobile */
-  .logo { font-size: 11px !important; letter-spacing: 1px !important; padding: 0 8px !important; flex-shrink: 1 !important; max-width: 100px !important; overflow: hidden !important; }
+  .logo { font-size: 17px !important; letter-spacing: 0.12em !important; padding: 0 10px !important; flex-shrink: 0 !important; }
   #clock { font-size: 15px !important; padding: 0 7px !important; letter-spacing: 0 !important; flex-shrink: 0 !important; }
   #date-picker-wrap { flex: 1; min-width: 0; border-right: none !important; }
   #hamburger-wrap { flex-shrink: 0 !important; margin-left: 0 !important; padding: 0 10px !important; }
@@ -395,7 +409,7 @@
 /* Tablet */
 @media (min-width: 769px) and (max-width: 1100px) {
   #right-panel { width: 170px; min-width: 170px; }
-  .logo { font-size: 14px; padding: 0 14px; }
+  .logo { font-size: 19px; padding: 0 14px; }
   #clock { font-size: 18px; padding: 0 12px; }
   .spill .val { max-width: 140px; }
 }
@@ -501,10 +515,10 @@
 <body>
 
 <div id="topbar">
-  <div class="logo">⬡ JNB CATERING OPS</div>
+  <div class="logo" title=""><span id="logo-name">ANGA</span><span class="logo-dot" aria-hidden="true"></span></div>
   <div id="date-str"></div>
   <div id="clock">00:00:00</div>
-  <div id="sync-status" title="Google Sheet sync status" style="display:flex;align-items:center;height:100%;padding:0 10px;border-right:1px solid var(--border);gap:5px;cursor:default;flex-shrink:0;">
+  <div id="sync-status" title="Data sync status" style="display:flex;align-items:center;height:100%;padding:0 10px;border-right:1px solid var(--border);gap:5px;cursor:default;flex-shrink:0;">
     <div id="sync-dot" style="width:7px;height:7px;border-radius:50%;background:var(--text-muted);flex-shrink:0;transition:background 0.4s;"></div>
     <div id="sync-lbl" style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;white-space:nowrap;transition:color 0.4s;">No sync</div>
   </div>
