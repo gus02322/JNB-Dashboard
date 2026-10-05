@@ -59,6 +59,13 @@
     return 2 * EARTH_NM * Math.asin(Math.min(1, Math.sqrt(a)));
   }
 
+  // Initial bearing from point 1 to point 2, degrees from north.
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    const r = Math.PI / 180, y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+    const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+    return (Math.atan2(y, x) / r + 360) % 360;
+  }
+
   // Candidate ADS-B callsigns for a flight number, using the IATA to ICAO prefixes of the Airlines tab.
   // "KP0073" gives ["KPE0073", "KPE73"]: both forms are tried, the diagnostic shows which one answers.
   function callsignCandidates(flight, prefixes) {
@@ -87,6 +94,11 @@
       return dist <= p.groundNm ? { usable: true, landed: true, dist, confidence: 'landed' } : { usable: false, reason: 'on ground elsewhere', dist };
     }
     if (typeof ac.gs !== 'number' || ac.gs < p.minGsKt) return { usable: false, reason: 'ground speed too low', dist };
+    // An aircraft flying away from the airport (for example the outbound leg) never gives an ETA.
+    if (typeof ac.track === 'number' && dist > p.groundNm) {
+      const off = Math.abs(((ac.track - bearingDeg(ac.lat, ac.lon, p.lat, p.lon)) % 360 + 540) % 360 - 180);
+      if (off > 100) return { usable: false, reason: 'flying away from the airport', dist };
+    }
     const etaM = nowM + (dist / ac.gs) * 60 + p.approachMarginMin;
     const confidence = dist <= p.finalNm ? 'final' : dist <= p.approachNm ? 'approach' : 'far';
     return { usable: true, landed: false, dist, etaM, confidence };
@@ -124,6 +136,6 @@
 
   return {
     DAY, t2m, m2t, round5, schedule, boxSlotFormula, boxSettings,
-    haversineNm, callsignCandidates, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
+    haversineNm, bearingDeg, callsignCandidates, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
   };
 });
