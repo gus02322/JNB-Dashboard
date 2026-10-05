@@ -123,7 +123,7 @@
   border-top: 1px solid var(--border); margin-top: 2px;
 }
 
-/* Nav items — full highlight */
+/* Nav items: full highlight */
 .ndrop-item {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px; cursor: pointer; font-family: var(--font-ui);
@@ -137,7 +137,7 @@
 /* Separator */
 .ndrop-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
-/* Filter items — smaller, indented, toggle style */
+/* Filter items: smaller, indented, toggle style */
 .ndrop-filter {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 16px 8px 16px; cursor: pointer; font-family: var(--font-mono);
@@ -526,14 +526,14 @@
   <div id="date-picker-wrap">
     <span class="dp-lbl">View</span>
     <div id="date-nav-prev" onclick="shiftDate(-1)" title="Previous day">‹</div>
-    <div id="date-display" onclick="openNativeDatePicker()" title="Pick a date">—</div>
+    <div id="date-display" onclick="openNativeDatePicker()" title="Pick a date">-</div>
     <div id="date-nav-next" onclick="shiftDate(1)" title="Next day">›</div>
     <div id="date-today-btn" class="hidden" onclick="resetToToday()">Today</div>
     <input type="date" id="native-date-input" onchange="onNativeDateChange(this.value)">
   </div>
   <div id="status-bar">
-    <div class="spill"><div class="lbl">Current</div><div class="val cur" id="cur-ev">—</div></div>
-    <div class="spill"><div class="lbl">Next</div><div class="val nxt" id="nxt-ev">—</div></div>
+    <div class="spill"><div class="lbl">Current</div><div class="val cur" id="cur-ev">-</div></div>
+    <div class="spill"><div class="lbl">Next</div><div class="val nxt" id="nxt-ev">-</div></div>
   </div>
   <div id="search-btn" onclick="openSearch()" title="Search flight">🔍</div>
   <div id="hamburger-wrap">
@@ -638,7 +638,7 @@
       <label class="cfg-fchk cfg-fchk-seal active" id="cfg-fchk-seal"><input type="checkbox" checked onchange="toggleFilter('seal',this.checked)"><span>● Sealing</span></label>
       <label class="cfg-fchk cfg-fchk-truck active" id="cfg-fchk-truck"><input type="checkbox" checked onchange="toggleFilter('truck',this.checked)"><span>● Truck Dep</span></label>
     </div>
-    <h2 style="margin-top:20px;">🔔 Alerts — Sealing &amp; Truck only</h2>
+    <h2 style="margin-top:20px;">🔔 Alerts: Sealing &amp; Truck only</h2>
     <div class="cfg-alert-row">
       <label>Enable alerts</label>
       <label class="tog"><input type="checkbox" id="cfg-alert-on" checked onchange="setAlertOn(this.checked)"><span class="tog-sl"></span></label>
@@ -686,8 +686,8 @@
 
 <!-- MOBILE BOTTOM BAR -->
 <div id="mobile-stats" style="display:none;">
-  <div class="spill"><div class="lbl">Current</div><div class="val cur" id="mob-cur">—</div></div>
-  <div class="spill"><div class="lbl">Next</div><div class="val nxt" id="mob-nxt">—</div></div>
+  <div class="spill"><div class="lbl">Current</div><div class="val cur" id="mob-cur">-</div></div>
+  <div class="spill"><div class="lbl">Next</div><div class="val nxt" id="mob-nxt">-</div></div>
   <div class="spill"><div class="lbl">Events</div><div class="val" id="mob-done">0</div></div>
   <div id="mob-sync-status" style="display:flex;flex-direction:column;justify-content:center;align-items:center;width:54px;min-width:54px;flex-shrink:0;border-left:1px solid var(--border);gap:2px;padding:0 4px;">
     <div id="mob-sync-dot" style="width:6px;height:6px;border-radius:50%;background:var(--text-muted);transition:background 0.4s;flex-shrink:0;"></div>
@@ -803,7 +803,7 @@
     <div id="alert-badge">Upcoming Event</div>
     <div id="alert-flight-num">XX000</div>
     <div id="alert-event-type">Truck Departure</div>
-    <div id="alert-time-left">in 15 min — 14:30</div>
+    <div id="alert-time-left">in 15 min · 14:30</div>
     <div id="alert-airline-name">Airline Name</div>
     <button id="alert-dismiss-btn" onclick="dismissAlert()">✓ Dismiss</button>
     <div id="alert-progress-bar"><div id="alert-progress-fill" style="width:100%"></div></div>
@@ -875,7 +875,7 @@ function t2m(t){if(!t)return-1;const[h,m]=t.split(':').map(Number);return h*60+m
 function nowMins(){const n=new Date();return n.getHours()*60+n.getMinutes()+n.getSeconds()/60;}
 function fmtMins(m){const h=Math.floor(m/60),mm=Math.floor(m%60);return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0');}
 
-/* AUTO NIGHT MODE — darker bg between 00h and 06h */
+/* AUTO NIGHT MODE: darker bg between 00h and 06h */
 function applyNightMode(){
   const h=new Date().getHours();
   const isNight=h>=0&&h<6;
@@ -943,7 +943,7 @@ function buildTimelineDesktop(inner,evs,nm){
     const nowWrap=document.createElement('div');
     nowWrap.className='now-line-abs';nowWrap.id='now-line-el';
     nowWrap.style.cssText=`top:${nm*pxpm}px;position:absolute;left:0;right:0;height:3px;`;
-    nowWrap.innerHTML=`<span class="now-label">NOW — ${fmtMins(nm)}</span><span class="now-dot"></span>`;
+    nowWrap.innerHTML=`<span class="now-label">NOW · ${fmtMins(nm)}</span><span class="now-dot"></span>`;
     inner.appendChild(nowWrap);
   }
   const scroll=inner.parentElement;
@@ -995,14 +995,14 @@ function updateNowLine(){
   if(!nl||!isToday(viewDate))return;
   const nm=nowMins();
   nl.style.top=(nm*ds.zoom)+'px';
-  const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW \u2014 '+fmtMins(nm);
+  const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW · '+fmtMins(nm);
 }
 
 function updateStatus(evs){
-  if(!isToday(viewDate)){['cur-ev','nxt-ev','mob-cur','mob-nxt'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='—';});return;}
+  if(!isToday(viewDate)){['cur-ev','nxt-ev','mob-cur','mob-nxt'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='-';});return;}
   const nm=nowMins();let cur=null,nxt=null;
   for(const e of evs){const m=t2m(e.time);if(m<=nm)cur=e;else if(!nxt)nxt=e;}
-  const curTxt=cur?`${cur.time} ${cur.lbl} ${cur.flight}`:'—';
+  const curTxt=cur?`${cur.time} ${cur.lbl} ${cur.flight}`:'-';
   const nxtTxt=nxt?`${nxt.time} ${nxt.lbl} ${nxt.flight}`:'None';
   const ce=document.getElementById('cur-ev'); if(ce) ce.textContent=curTxt;
   const ne=document.getElementById('nxt-ev'); if(ne) ne.textContent=nxtTxt;
@@ -1012,7 +1012,7 @@ function updateStatus(evs){
 
 function updateProg(evs){
   const tot=evs.length;
-  const pct=100; // no done tracking — full bar always
+  const pct=100; // no done tracking: full bar always
   ['prog-fill','dr-prog-fill'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.width='100%';});
   ['prog-txt','dr-prog-txt'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=`${tot} events today`;});
   const dc=document.getElementById('done-cnt'); if(dc) dc.textContent=tot;
@@ -1133,7 +1133,7 @@ function renderConfig(){
   const bbrv=document.getElementById('cfg-bg-bright-v');if(bbrv)bbrv.textContent=bgTheme.bright;
 }
 
-/* ALERTS — Sealing & Truck ONLY */
+/* ALERTS: Sealing & Truck ONLY */
 let alertSettings={on:true,min:15},alertedKeys=new Set(),_alertDismissTimer=null;
 
 function loadAlertSettings(){
@@ -1175,7 +1175,7 @@ function showAlertModal(ev,minsLeft){
   const modal=document.getElementById('alert-modal');
   document.getElementById('alert-flight-num').textContent=ev.flight;
   document.getElementById('alert-event-type').textContent=ev.lbl.toUpperCase();
-  document.getElementById('alert-time-left').textContent=`in ${minsLeft} min \u2014 ${ev.time}`;
+  document.getElementById('alert-time-left').textContent=`in ${minsLeft} min · ${ev.time}`;
   document.getElementById('alert-airline-name').textContent=ev.airline.toUpperCase();
   document.getElementById('alert-icon').textContent=ev.type==='truck'?'🚚':'✂️';
   const fill=document.getElementById('alert-progress-fill');
@@ -1222,7 +1222,7 @@ drawerHandle.addEventListener('touchstart',e=>{drawerStartY=e.touches[0].clientY
 drawerHandle.addEventListener('touchmove',e=>{drawerCurrentY=e.touches[0].clientY;const dy=drawerCurrentY-drawerStartY;if(dy>0){const dr=document.getElementById('mob-drawer');dr.style.transform=`translateY(${dy}px)`;dr.style.transition='none';}},{passive:true});
 drawerHandle.addEventListener('touchend',()=>{const dy=drawerCurrentY-drawerStartY;const dr=document.getElementById('mob-drawer');dr.style.transition='';if(dy>80){closeDrawer();dr.style.transform='';}else{dr.style.transform='';}});
 
-/* AIRLINE VIEW — no Done button */
+/* AIRLINE VIEW: no Done button */
 function buildAirlineView(){
   const day=viewDayOfWeek(),nm=isToday(viewDate)?nowMins():-1;
   const container=document.getElementById('airline-cards');
@@ -1285,7 +1285,7 @@ function loadBgTheme(){
 }
 function setBgBright(v){bgTheme.bright=parseInt(v);['bg-bright','dr-bg-bright','cfg-bg-bright'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=v;});applyBgTheme();}
 
-/* PRODUCTION VIEW — no Done button */
+/* PRODUCTION VIEW: no Done button */
 // Box Time slots: BoxTime tab of the Sheet. Phase 1 shows the OVERRIDE time only.
 function prodSlots(){
   return AngaData.get().boxTime.filter(b=>t2m(b.override)>=0).map(b=>({si:b.si,flight:b.flight,day:b.day,time:b.override,airline:AngaData.airlineForFlight(b.flight)}));
@@ -1306,7 +1306,7 @@ function buildProductionView(){
     const nowWrap=document.createElement('div');
     nowWrap.className='now-line-abs';nowWrap.id='prod-now-line';
     nowWrap.style.cssText=`top:${nm*pxpm}px;position:absolute;left:0;right:0;height:3px;`;
-    nowWrap.innerHTML=`<span class="now-label">NOW \u2014 ${fmtMins(nm)}</span><span class="now-dot"></span>`;
+    nowWrap.innerHTML=`<span class="now-label">NOW · ${fmtMins(nm)}</span><span class="now-dot"></span>`;
     inner.appendChild(nowWrap);
   }
   const LANE=58,GAP=4,BW=200,mobile=isMobile();
@@ -1362,7 +1362,7 @@ function buildWeekView(){
   const MS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const nm=nowMins();
   const weekEnd=new Date(weekStart);weekEnd.setDate(weekStart.getDate()+6);
-  if(range)range.textContent=weekStart.getDate()+' '+MS[weekStart.getMonth()]+' — '+weekEnd.getDate()+' '+MS[weekEnd.getMonth()]+' '+weekEnd.getFullYear();
+  if(range)range.textContent=weekStart.getDate()+' '+MS[weekStart.getMonth()]+' - '+weekEnd.getDate()+' '+MS[weekEnd.getMonth()]+' '+weekEnd.getFullYear();
   for(let d=0;d<7;d++){
     const colDate=new Date(weekStart);colDate.setDate(weekStart.getDate()+d);
     const isTodayCol=colDate.getTime()===today.getTime();
@@ -1461,7 +1461,7 @@ function openFlightSheet(flightId){
     return`<div class="fs-timing-card${has?'':' no-time'}" style="border-left-color:${t.border}">
       <div class="fs-t-icon">${t.icon}</div>
       <div class="fs-t-label" style="color:${t.color}">${t.label}</div>
-      <div class="fs-t-time${has?'':' no-val'}">${has?val:'\u2014'}</div>
+      <div class="fs-t-time${has?'':' no-val'}">${has?val:'-'}</div>
     </div>`;
   }).join('');
   document.getElementById('fs-actions').innerHTML=
@@ -1586,14 +1586,14 @@ setInterval(updateClock,1000);
 setInterval(()=>{
   if(isToday(viewDate))updateNowLine();
   const e=todayEvents();updateStatus(e);updateProg(e);checkAlerts();
-  const nl=document.getElementById('prod-now-line');if(nl&&isToday(viewDate)){nl.style.top=(nowMins()*ds.zoom)+'px';const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW \u2014 '+fmtMins(nowMins());}
+  const nl=document.getElementById('prod-now-line');if(nl&&isToday(viewDate)){nl.style.top=(nowMins()*ds.zoom)+'px';const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW · '+fmtMins(nowMins());}
   applyNightMode();
 },30000);
 
 setInterval(()=>{
   if(!isToday(viewDate))return;
   updateNowLine();
-  const nl=document.getElementById('prod-now-line');if(nl){nl.style.top=(nowMins()*ds.zoom)+'px';const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW \u2014 '+fmtMins(nowMins());}
+  const nl=document.getElementById('prod-now-line');if(nl){nl.style.top=(nowMins()*ds.zoom)+'px';const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW · '+fmtMins(nowMins());}
   const followCb=document.getElementById('follow-now');
   if(followCb&&followCb.checked&&!isMobile()){
     const tv=document.getElementById('timeline-view');
