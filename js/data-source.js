@@ -49,7 +49,8 @@
   }
 
   // Main flights tab. Data rows start with a number (SI). Columns:
-  // SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days, [FLIGHT_OUT]
+  // SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days, [FLIGHT_OUT], [FLIGHT_IN]
+  // Flight is the departing flight number. FLIGHT_IN: arriving flight number when it differs.
   // Returns every valid row, including rows with no operating day (Days = 0),
   // which are kept for lookups only and never shown on the board.
   function parseFlights(rows) {
@@ -70,6 +71,7 @@
         truck: c[7] || '',
         days: parseDays(c[8]),
         flightOut: c[9] || '',
+        flightIn: c[10] || '',
       });
     });
     return out;

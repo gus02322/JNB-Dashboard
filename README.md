@@ -24,7 +24,7 @@ Onglets (ligne 1 = en-têtes) :
 
 | Onglet | Colonnes |
 | --- | --- |
-| principal (premier onglet) | `SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days`, puis `FLIGHT_OUT` en option, en dernière position (callsign de départ, vide = même que Flight). Les lignes de données commencent par un numéro (SI). `Days` : chiffres 1 (lundi) à 7 (dimanche), `daily` ou `1234567`, `0` = ne vole pas. |
+| principal (premier onglet) | `SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days`, puis deux colonnes optionnelles : `FLIGHT_OUT` (J, numéro de départ s'il diffère de Flight) et `FLIGHT_IN` (K, numéro sous lequel l'avion **arrive**, souvent différent du numéro de départ, par exemple 749 à l'arrivée pour 748 au départ ; vide = même que Flight). `Flight` est le numéro du vol au départ. Le suivi de l'arrivée utilise `FLIGHT_IN`. Les lignes de données commencent par un numéro (SI). `Days` : chiffres 1 (lundi) à 7 (dimanche), `daily` ou `1234567`, `0` = ne vole pas. |
 | `Airlines` | `NAME, COLOR, IATA, ICAO` |
 | `Config` | `KEY, VALUE, DESCRIPTION` |
 | `BoxTime` | `SI, FLIGHT, DAY` (`D-1` ou `D`), `OVERRIDE` (HH:MM) |
