@@ -92,7 +92,13 @@
     const csMap = {};
     // The arriving aircraft flies under FLIGHT_IN when set; Flight is the departing flight number.
     inbound.forEach(f => { csMap[f.id] = C.callsignCandidates(f.flightIn || f.flight, prefixes); });
-    const cs = [...new Set(Object.values(csMap).flat())].slice(0, 30);
+    // Departing aircraft (Flight, or FLIGHT_OUT when set): watched from ETD - 60 min to ETD + 240 min.
+    const outMap = {};
+    flights.forEach(f => {
+      const s = C.schedule(f);
+      if (s.etd !== null && nm >= s.etd - DEP_WATCH_BEFORE && nm <= s.etd + DEP_WATCH_AFTER) outMap[f.id] = C.callsignCandidates(f.flightOut || f.flight, prefixes);
+    });
+    const cs = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))].slice(0, 30);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
     const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(',') });
@@ -113,14 +119,14 @@
     }
     failures = 0;
     lastPayload = Object.assign({}, payload, { routes: Object.assign({}, lastPayload && lastPayload.routes, payload.routes) });
-    process(payload, p, now, nm, flights, inbound, csMap);
+    process(payload, p, now, nm, flights, inbound, csMap, outMap);
     status = { state: 'ok', at: Date.now(), error: null };
     saveJSON(STATE_KEY, state);
     notify();
     return schedule(p.refreshSec);
   }
 
-  function process(payload, p, now, nm, flights, inbound, csMap) {
+  function process(payload, p, now, nm, flights, inbound, csMap, outMap) {
     const point = payload.point || [];
     const routes = lastPayload.routes || {};
     const rows = [];
@@ -154,25 +160,40 @@
       rows.push(row);
     });
 
-    // Departure detection around the airport: on ground, then airborne.
+    // Departure: the departing aircraft seen on the ground at the airport, then airborne and flying away.
+    // If it is first seen already airborne, the take-off time is estimated from its distance and speed.
+    const outRows = [];
     flights.forEach(f => {
-      const s = C.schedule(f);
-      if (s.etd === null || nm < s.etd - DEP_WATCH_BEFORE || nm > s.etd + DEP_WATCH_AFTER) return;
+      const cands = outMap[f.id];
+      if (!cands) return;
       const st = fs(f.id);
-      if (st.departedAt) return;
-      const out = C.callsignCandidates(f.flightOut || f.flight, data.icaoPrefixes());
-      const ac = pickAircraft(out.map(c => point.filter(a => C.cleanCallsign(a.flight) === c)));
-      if (!ac || typeof ac.lat !== 'number') return;
+      const ac = pickAircraft(cands.map(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c))));
+      const row = { flight: f.flight + ' (departure)', candidates: cands, found: ac ? [C.cleanCallsign(ac.flight)] : [], reason: '' };
+      if (!ac || typeof ac.lat !== 'number') { row.reason = st.departedAt !== undefined ? 'departed, out of live coverage' : 'not found'; outRows.push(row); return; }
       const dist = C.haversineNm(ac.lat, ac.lon, p.lat, p.lon);
-      if (ac.alt_baro === 'ground' && dist <= GROUND_NM) st.depState = 'ground';
-      else if (ac.alt_baro !== 'ground' && st.depState === 'ground') {
-        st.departedAt = Math.round(nm - (ac.seen_pos || 0) / 60);
-        addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(st.departedAt), reason: 'departure detected' });
+      row.dist = Math.round(dist);
+      if (ac.alt_baro === 'ground') {
+        if (dist <= GROUND_NM) { st.depState = 'ground'; row.reason = 'on the ground at the airport'; }
+        else row.reason = 'on the ground elsewhere';
+        outRows.push(row); return;
       }
+      const away = typeof ac.track !== 'number' || dist <= GROUND_NM ||
+        Math.abs(((ac.track - C.bearingDeg(p.lat, p.lon, ac.lat, ac.lon)) % 360 + 540) % 360 - 180) <= 100;
+      if (!away) { row.reason = 'airborne but flying towards the airport'; outRows.push(row); return; }
+      if (st.departedAt === undefined) {
+        const fromGround = st.depState === 'ground';
+        const flown = !fromGround && ac.gs > 50 ? (dist / ac.gs) * 60 : 0;
+        st.departedAt = C.round5(nm - (ac.seen_pos || 0) / 60 - flown);
+        st.depEstimated = !fromGround;
+        addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(st.departedAt), reason: fromGround ? 'take-off detected' : 'seen in flight, take-off time estimated' });
+      }
+      st.out = { lat: ac.lat, lon: ac.lon, dist, gs: ac.gs, alt: ac.alt_baro, seenAt: Date.now() - (ac.seen_pos || 0) * 1000 };
+      row.reason = 'in flight, departed ' + C.m2t(st.departedAt) + (st.depEstimated ? ' (estimated)' : '');
+      outRows.push(row);
     });
 
     flights.forEach(f => recalc(f, p, nm));
-    diag = { rows, near: [...new Set(point.map(a => C.cleanCallsign(a.flight)).filter(Boolean))].sort(), at: Date.now() };
+    diag = { rows: rows.concat(outRows), near: [...new Set(point.map(a => C.cleanCallsign(a.flight)).filter(Boolean))].sort(), at: Date.now() };
   }
 
   // Estimated ETD, Sealing, Truck and Box Time (D slots only), applied with the threshold.
@@ -214,11 +235,11 @@
   function forFlight(f) {
     if (status.state !== 'ok' || !state || !f) return null;
     const st = state.flights[f.id];
-    if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt } : null;
+    if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out } : null;
     const s = C.schedule(f), a = st.applied || {};
     return {
       eta: st.eta, confidence: st.confidence, landed: !!st.landedAt, routeOk: st.routeOk, pos: st.pos, seenAt: st.seenAt,
-      etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt,
+      etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
       sealAuto: a.seal !== undefined && a.seal !== s.seal, truckAuto: a.truck !== undefined && a.truck !== s.truck, etdAuto: a.etd !== undefined && a.etd !== s.etd,
     };
   }
