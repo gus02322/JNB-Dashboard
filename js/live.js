@@ -40,7 +40,10 @@
       approachMarginMin: g('APPROACH_MARGIN_MIN', 5), minGsKt: g('MIN_GS_KT', 150), maxPosAgeSec: g('MAX_POSITION_AGE_SEC', 120),
       minRotationMin: g('MIN_ROTATION_MIN', 60), dayStopMinGround: g('DAY_STOP_MIN_GROUND', 360),
       threshold: g('RECALC_THRESHOLD_MIN', 5), tight: g('TIGHT_SLOT_MIN', 30),
-      groundNm: GROUND_NM, finalNm: FINAL_NM, approachNm: APPROACH_NM,
+      groundNm: g('LANDED_RADIUS_NM', GROUND_NM), finalNm: FINAL_NM, approachNm: APPROACH_NM,
+      posFreshMult: g('POS_FRESH_MULT', 2), posMediumMin: g('POS_MEDIUM_MIN', 30), posLowMin: g('POS_LOW_MIN', 60),
+      uncertaintyFactor: g('UNCERTAINTY_FACTOR', 0.15), mapMaxKm: g('MAP_MAX_KM', 9000), dueTolMin: g('DUE_TOLERANCE_MIN', 5),
+      historyEnabled: String(g('HISTORY_ENABLED', 'TRUE')).toUpperCase() === 'TRUE', historyMinSamples: g('HISTORY_MIN_SAMPLES', 5),
     };
   }
 
@@ -146,6 +149,9 @@
       const est = C.liveEta(ac, nm, p);
       row.dist = est.dist !== undefined ? Math.round(est.dist) : null;
       if (!est.usable) { row.reason = est.reason; rows.push(row); return; }
+      // Landed only after being seen in flight: a parked aircraft with the same callsign is not a landing.
+      if (est.landed && !st.airborneSeen) { row.reason = 'on the ground at the airport, never seen in flight: not counted as landed'; rows.push(row); return; }
+      if (!est.landed) st.airborneSeen = true;
       if (est.landed) {
         st.landedAt = nm;
         st.eta = nm; st.confidence = 'landed';
@@ -232,16 +238,60 @@
   }
 
   // Live view of one flight for the UI, or null when nothing live applies.
+  // level: 'live' (fresh position), 'lost' (seen then lost: estimated, never shown as live),
+  // 'landed' (detected on the ground after being seen in flight). dr: dead reckoning for 'lost'.
   function forFlight(f) {
+    if (demo && f && f.id === demo.id) return demo.view();
     if (status.state !== 'ok' || !state || !f) return null;
     const st = state.flights[f.id];
     if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out } : null;
-    const s = C.schedule(f), a = st.applied || {};
+    const s = C.schedule(f), a = st.applied || {}, p = settings();
+    const level = C.arrivalLevel(st, Date.now(), p), ageMin = st.seenAt ? (Date.now() - st.seenAt) / 60000 : null;
+    let dr = null;
+    if (level === 'lost' && st.pos && Number.isFinite(p.lat)) {
+      const now = new Date();
+      dr = C.deadReckon(st.pos, { lat: p.lat, lon: p.lon }, st.eta, nowMins(now), ageMin, p);
+    }
     return {
+      level, ageMin, dr, landedAt: st.landedAt,
       eta: st.eta, confidence: st.confidence, landed: !!st.landedAt, routeOk: st.routeOk, pos: st.pos, seenAt: st.seenAt,
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
       sealAuto: a.seal !== undefined && a.seal !== s.seal, truckAuto: a.truck !== undefined && a.truck !== s.truck, etdAuto: a.etd !== undefined && a.etd !== s.etd,
     };
+  }
+
+  // Median deviation of past days for a flight, computed by the relay from the private History tab.
+  // Key: arriving flight number and scheduled ETA (one flight number can have several Sheet rows).
+  function historyFor(f) {
+    if (demo && f && f.id === demo.id) return demo.history();
+    const p = data ? settings() : null;
+    if (!p || !p.historyEnabled || !lastPayload || !lastPayload.history || !f || !f.eta) return null;
+    const h = lastPayload.history[String(f.flightIn || f.flight).toUpperCase() + '|' + f.eta];
+    return h && h.n >= p.historyMinSamples && Number.isFinite(h.median) ? h : null;
+  }
+
+  /* ---------- demo mode: simulated observations for a fictive flight, never real data ---------- */
+  let demo = null;
+  function setDemo(kind, f, airport) {
+    const now = Date.now(), nm = nowMins(new Date()), eta = C.t2m(f.eta);
+    const at = (km) => ({ lat: airport.lat + km / C.KM_PER_NM / 60, lon: airport.lon });
+    const base = { etd: undefined, sealAuto: false, truckAuto: false, etdAuto: false, simulated: true };
+    const views = {
+      live: () => {
+        const distNm = (eta - nm - 5) / 60 * 450;
+        return Object.assign({}, base, { level: 'live', ageMin: 1.5, eta, confidence: 'far', seenAt: now - 90e3,
+          pos: Object.assign(at(distNm * C.KM_PER_NM), { dist: distNm, gs: 450, alt: 33000 }) });
+      },
+      lost: () => {
+        const ageMin = 35, gs = 460, last = Object.assign(at((eta - (nm - ageMin) - 5) / 60 * gs * C.KM_PER_NM), { gs, alt: 35000 });
+        const p = settings();
+        return Object.assign({}, base, { level: 'lost', ageMin, eta, seenAt: now - ageMin * 60e3, pos: last,
+          dr: C.deadReckon(last, airport, eta, nm, ageMin, p) });
+      },
+      landed: () => Object.assign({}, base, { level: 'landed', ageMin: 10, eta: nm - 10, landedAt: nm - 10, landed: true, seenAt: now - 10 * 60e3 }),
+      never: () => null,
+    };
+    demo = { id: f.id, view: views[kind] || views.never, history: () => (kind === 'never' ? { median: 12, n: 7, simulated: true } : null) };
   }
 
   function schedule(sec) { clearTimeout(timer); timer = setTimeout(tick, sec * 1000); }
@@ -251,7 +301,8 @@
     refreshNow() { clearTimeout(timer); tick(); },
     onUpdate(cb) { listeners.push(cb); },
     status: () => status,
-    forFlight, boxSlot,
+    forFlight, boxSlot, historyFor, setDemo,
+    settings: () => (data ? settings() : null),
     takeTightAlerts() { const q = tightQueue; tightQueue = []; return q; },
     log: () => log.slice(),
     diagnostic: () => diag,
