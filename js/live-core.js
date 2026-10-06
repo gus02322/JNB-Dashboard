@@ -104,6 +104,84 @@
     return { usable: true, landed: false, dist, etaM, confidence };
   }
 
+  /* ---------- estimate levels: live, last known, scheduled ---------- */
+
+  const KM_PER_NM = 1.852;
+
+  // Point at fraction f (0..1) of the great circle from point 1 to point 2.
+  function gcInterpolate(lat1, lon1, lat2, lon2, f) {
+    const r = Math.PI / 180, p1 = lat1 * r, l1 = lon1 * r, p2 = lat2 * r, l2 = lon2 * r;
+    const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
+    if (d === 0) return { lat: lat1, lon: lon1 };
+    const a = Math.sin((1 - f) * d) / Math.sin(d), b = Math.sin(f * d) / Math.sin(d);
+    const x = a * Math.cos(p1) * Math.cos(l1) + b * Math.cos(p2) * Math.cos(l2);
+    const y = a * Math.cos(p1) * Math.sin(l1) + b * Math.cos(p2) * Math.sin(l2);
+    const z = a * Math.sin(p1) + b * Math.sin(p2);
+    return { lat: Math.atan2(z, Math.sqrt(x * x + y * y)) / r, lon: Math.atan2(y, x) / r };
+  }
+
+  // Level of an inbound flight from its stored state: 'landed' (detected on the ground after being
+  // seen in flight), 'live' (position fresh), 'lost' (seen, then lost), or null (never seen).
+  function arrivalLevel(st, nowMs, p) {
+    if (!st || st.eta === undefined || st.eta === null) return null;
+    if (st.landedAt !== undefined && st.landedAt !== null) return 'landed';
+    const ageSec = (nowMs - st.seenAt) / 1000;
+    return ageSec <= p.posFreshMult * p.refreshSec ? 'live' : 'lost';
+  }
+
+  function confidenceFromAge(ageMin, p) {
+    return ageMin <= p.posMediumMin ? 'high' : ageMin <= p.posLowMin ? 'medium' : 'low';
+  }
+
+  // Dead reckoning for a lost aircraft. The last live ETA stays the reference: the estimated
+  // distance is what the aircraft still has to fly at its last ground speed to meet that ETA,
+  // placed on the great circle between the last known position and the airport.
+  function deadReckon(last, airport, etaM, nowM, ageMin, p) {
+    const remainingMin = etaM - nowM - p.approachMarginMin;
+    const distNm = Math.max(0, (last.gs || 0) * Math.max(0, remainingMin) / 60);
+    const total = haversineNm(airport.lat, airport.lon, last.lat, last.lon);
+    const f = total > 0 ? Math.min(1, distNm / total) : 0;
+    const pos = gcInterpolate(airport.lat, airport.lon, last.lat, last.lon, f);
+    const uncNm = p.uncertaintyFactor * (last.gs || 0) * ageMin / 60;
+    return {
+      lat: pos.lat, lon: pos.lon, distNm, distKm: distNm * KM_PER_NM, uncKm: uncNm * KM_PER_NM,
+      confidence: confidenceFromAge(ageMin, p), arrived: distNm <= 0,
+    };
+  }
+
+  // Position on the schematic map: 0 = far end of the arc, 1 = airport.
+  function mapFraction(distKm, maxKm) {
+    return 1 - Math.min(Math.max(distKm, 0), maxKm) / maxKm;
+  }
+
+  // Arrival status line. Times in minutes of the operating day.
+  function arrivalStatus(etaM, nowM, landedAtM, tolMin) {
+    if (landedAtM !== null && landedAtM !== undefined) return { kind: 'landed', text: 'Landed ' + m2t(landedAtM) + ' (detected)' };
+    if (etaM === null || etaM === undefined) return { kind: 'none', text: '' };
+    if (nowM < etaM - tolMin) {
+      const left = Math.round(etaM - nowM), h = Math.floor(left / 60), m = left % 60;
+      return { kind: 'before', text: 'ETA in ' + (h ? h + 'h ' + m + 'm' : m + 'm') };
+    }
+    if (nowM <= etaM + tolMin) return { kind: 'due', text: 'Due now' };
+    return { kind: 'passed', text: 'Scheduled time passed, no live confirmation' };
+  }
+
+  function median(values) {
+    const v = values.filter(x => Number.isFinite(x)).sort((a, b) => a - b);
+    if (!v.length) return null;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  }
+
+  // Optional, off by default: rough position of a flight never seen, from the schedule only.
+  function scheduleEstimate(origin, airport, etaM, nowM, durationMin) {
+    if (!origin || !durationMin) return null;
+    const fraction = 1 - (etaM - nowM) / durationMin;
+    if (!(fraction > 0 && fraction < 1)) return null;
+    const totalKm = haversineNm(origin.lat, origin.lon, airport.lat, airport.lon) * KM_PER_NM;
+    return { fraction, distKm: totalKm * (1 - fraction) };
+  }
+
   /* ---------- recalculation ---------- */
 
   // Estimated ETD and the Sealing / Truck times that follow it.
@@ -136,6 +214,7 @@
 
   return {
     DAY, t2m, m2t, round5, schedule, boxSlotFormula, boxSettings,
-    haversineNm, bearingDeg, callsignCandidates, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
+    haversineNm, bearingDeg, callsignCandidates, KM_PER_NM, gcInterpolate, arrivalLevel, confidenceFromAge,
+    deadReckon, mapFraction, arrivalStatus, median, scheduleEstimate, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
   };
 });
