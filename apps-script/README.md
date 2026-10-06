@@ -15,7 +15,7 @@ Le navigateur ne peut pas appeler l'API de suivi des vols directement (CORS). Ce
    - Qui a accès : **Tout le monde**
 7. Cliquer sur **Déployer**, puis **Autoriser l'accès**, choisir le compte. Google affiche « Google n'a pas validé cette application » : cliquer sur **Paramètres avancés**, puis **Accéder à ANGA live relay (non sécurisé)**, puis **Autoriser**. Le script demande seulement le droit d'appeler des services externes.
 8. Copier l'**URL de l'application Web** (elle finit par `/exec`).
-9. Vérifier : ouvrir cette URL suivie de `?cs=UAE768` dans le navigateur. Une réponse du type `{"now":...,"cs":{"UAE768":[...]},...}` doit s'afficher (liste vide si le vol n'est pas en l'air).
+9. Vérifier : ouvrir cette URL suivie de `?cs=ABC123` (indicatif fictif) dans le navigateur. Une réponse du type `{"now":...,"cs":{"ABC123":[]},...}` doit s'afficher.
 10. Coller l'URL dans l'onglet **Config** du Sheet, clé `LIVE_RELAY_URL`.
 
 ## Historique des arrivées (onglet History)
