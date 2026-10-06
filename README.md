@@ -51,6 +51,15 @@ Ordre de lecture pour chaque onglet : Sheet, puis dernière lecture réussie gar
   - Sealing et Truck gardent l'écart propre à chaque vol avec l'ETD. Box Time : seuls les slots D encore à venir suivent ce décalage (mention « Auto ») ; les slots D-1 ne bougent jamais, un écart d'au moins 30 min est signalé (« Check »).
   - Un recalcul n'est appliqué que si l'estimation bouge d'au moins `RECALC_THRESHOLD_MIN`. Chaque recalcul est journalisé sur l'écran (menu ☰ > Live log). Une heure recalculée à moins de `TIGHT_SLOT_MIN` minutes déclenche l'alerte « Slot too tight ».
   - Relais injoignable : retour aux horaires du Sheet, indicateur orange « Scheduled times ».
+- Trois niveaux pour une arrivée (fiche vol et libellés de la timeline) :
+  1. **Live** : position de moins de `POS_FRESH_MULT` x intervalle de mise à jour. Icône pleine, badge LIVE, âge de la position.
+  2. **Estimated** (vu puis perdu) : la dernière ETA live est gardée ; position estimée à l'estime sur le grand cercle entre la dernière position et l'aéroport, incertitude `UNCERTAINTY_FACTOR` x vitesse x temps écoulé, confiance haute, moyenne ou basse selon `POS_MEDIUM_MIN` et `POS_LOW_MIN`. Icône en pointillés, badge ESTIMATED, jamais « LIVE » ni « Landed » ; « Probably arrived, not confirmed » quand l'estimation atteint l'aéroport.
+  3. **Scheduled** (jamais vu) : heure prévue, ou heure prévue + écart médian des jours passés si l'historique a au moins `HISTORY_MIN_SAMPLES` jours (« ETA estimated (history, N days) »).
+- « Landed HH:MM (detected) » seulement si l'avion est vu au sol près de l'aéroport après avoir été vu en vol.
+- Carte schématique : position = 1 - min(distance restante, `MAP_MAX_KM`) / `MAP_MAX_KM`, distances en km.
+- Historique : voir `apps-script/README.md` (onglet History privé, calculé par le relais).
+- Mode démo (flag `DEMO_MODE`) : `?demo=live`, `?demo=lost`, `?demo=never` ou `?demo=landed` ouvre le vol fictif XX123 avec des observations simulées, signalées par un bandeau.
+- Option désactivée (`SHOW_SCHEDULE_ESTIMATE` = FALSE) : position grossière d'un vol jamais vu à partir des colonnes optionnelles `ORIGIN_ICAO` (L) et `DURATION_MIN` (M) et de l'onglet `Airports` (ICAO, LAT, LON), affichée en gris « Schedule-based estimate, not observed ».
 - Mode diagnostic (`?ff=LIVE_ADSB,DIAGNOSTIC`) : callsigns essayés et reçus pour chaque vol attendu, vols introuvables, callsigns vus autour de l'aéroport, écarts Box Time règle / OVERRIDE.
 
 ## Lancer en local
