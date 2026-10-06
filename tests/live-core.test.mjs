@@ -90,3 +90,47 @@ test('an aircraft flying away from the airport gives no ETA', () => {
   assert.equal(C.liveEta({ lat: 1, lon: 0, gs: 300, alt_baro: 20000, track: 0 }, 600, P).reason, 'flying away from the airport');
   assert.equal(C.liveEta({ lat: 1, lon: 0, gs: 300, alt_baro: 20000 }, 600, P).usable, true); // no track: not refused
 });
+
+const LV = { posFreshMult: 2, refreshSec: 1200, posMediumMin: 30, posLowMin: 60, uncertaintyFactor: 0.15, approachMarginMin: 5 };
+
+test('levels: never seen, live, lost, landed', () => {
+  const now = 10_000_000;
+  assert.equal(C.arrivalLevel({}, now, LV), null);
+  assert.equal(C.arrivalLevel({ eta: 600, seenAt: now - 30 * 60e3 }, now, LV), 'live'); // 30 min <= 2 x 20 min
+  assert.equal(C.arrivalLevel({ eta: 600, seenAt: now - 41 * 60e3 }, now, LV), 'lost');
+  assert.equal(C.arrivalLevel({ eta: 600, seenAt: now - 90 * 60e3, landedAt: 590 }, now, LV), 'landed');
+});
+
+test('dead reckoning stays consistent with the last live ETA', () => {
+  // Last seen 2 degrees north (120 nm) at 480 kt. ETA 600, now 590, margin 5: 5 min left = 40 nm.
+  const r = C.deadReckon({ lat: 2, lon: 0, gs: 480 }, { lat: 0, lon: 0 }, 600, 590, 20, LV);
+  assert.ok(Math.abs(r.distNm - 40) < 1e-9);
+  assert.ok(Math.abs(r.lat - 40 / 60) < 0.01 && Math.abs(r.lon) < 1e-9);
+  assert.ok(Math.abs(r.uncKm - 0.15 * 480 * 20 / 60 * 1.852) < 1e-9);
+  assert.equal(r.confidence, 'high');
+  assert.equal(r.arrived, false);
+  const late = C.deadReckon({ lat: 2, lon: 0, gs: 480 }, { lat: 0, lon: 0 }, 600, 620, 70, LV);
+  assert.equal(late.distNm, 0);
+  assert.equal(late.arrived, true);
+  assert.equal(late.confidence, 'low');
+  assert.equal(C.confidenceFromAge(45, LV), 'medium');
+});
+
+test('map fraction and arrival status', () => {
+  assert.equal(C.mapFraction(0, 9000), 1);
+  assert.equal(C.mapFraction(4500, 9000), 0.5);
+  assert.equal(C.mapFraction(20000, 9000), 0);
+  assert.equal(C.arrivalStatus(700, 600, null, 5).text, 'ETA in 1h 40m');
+  assert.equal(C.arrivalStatus(700, 697, null, 5).text, 'Due now');
+  assert.equal(C.arrivalStatus(700, 720, null, 5).text, 'Scheduled time passed, no live confirmation');
+  assert.equal(C.arrivalStatus(700, 720, 712, 5).text, 'Landed 11:52 (detected)');
+});
+
+test('median ignores non numbers, schedule estimate only inside the flight', () => {
+  assert.equal(C.median([5, 1, 100, 3]), 4);
+  assert.equal(C.median([7, NaN, 2, 9]), 7);
+  assert.equal(C.median([]), null);
+  const e = C.scheduleEstimate({ lat: 10, lon: 0 }, { lat: 0, lon: 0 }, 700, 640, 240);
+  assert.ok(Math.abs(e.fraction - 0.75) < 1e-9);
+  assert.equal(C.scheduleEstimate({ lat: 10, lon: 0 }, { lat: 0, lon: 0 }, 700, 300, 240), null);
+});
