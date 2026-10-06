@@ -49,7 +49,7 @@
   }
 
   // Main flights tab. Data rows start with a number (SI). Columns:
-  // SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days, [FLIGHT_OUT], [FLIGHT_IN]
+  // SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days, [FLIGHT_OUT], [FLIGHT_IN], [ORIGIN_ICAO], [DURATION_MIN]
   // Flight is the departing flight number. FLIGHT_IN: arriving flight number when it differs.
   // Returns every valid row, including rows with no operating day (Days = 0),
   // which are kept for lookups only and never shown on the board.
@@ -72,6 +72,8 @@
         days: parseDays(c[8]),
         flightOut: c[9] || '',
         flightIn: c[10] || '',
+        originIcao: (c[11] || '').toUpperCase(),
+        durationMin: c[12] ? parseInt(c[12], 10) || null : null,
       });
     });
     return out;
@@ -102,6 +104,12 @@
     return s;
   }
 
+  // Optional "Airports" tab (only used by the schedule based estimate, off by default).
+  function parseAirports(rows) {
+    return parseTable(rows).filter(o => o.ICAO && o.LAT && o.LON).map(o => ({ icao: o.ICAO.toUpperCase(), lat: parseFloat(o.LAT), lon: parseFloat(o.LON) }))
+      .filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon));
+  }
+
   function parseBoxTime(rows) {
     return parseTable(rows).filter(o => o.FLIGHT).map(o => ({
       si: o.SI ? parseInt(o.SI, 10) : null,
@@ -116,15 +124,16 @@
     airlines: { parse: t => parseAirlines(parseCSV(t)), valid: d => d.length > 0 },
     settings: { parse: t => parseSettings(parseCSV(t)), valid: d => Object.keys(d).length > 0 },
     boxTime: { parse: t => parseBoxTime(parseCSV(t)), valid: d => d.length > 0 },
+    airports: { parse: t => parseAirports(parseCSV(t)), valid: d => d.length > 0, optional: true },
   };
-  const EMPTY = { flights: { rows: [] }, airlines: [], settings: {}, boxTime: [] };
+  const EMPTY = { flights: { rows: [] }, airlines: [], settings: {}, boxTime: [], airports: [] };
 
   /* ---------- data source instance ---------- */
 
   function create(cfg, env) {
     const listeners = [];
     let localFile; // promise of the local file content (null when unavailable), read once
-    const state = { flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], tabs: {} };
+    const state = { flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], airports: [], tabs: {} };
 
     function tabUrl(name) {
       if (name === 'flights') return cfg.SHEET_CSV_URL;
@@ -159,6 +168,7 @@
     async function loadTab(name) {
       const tab = TABS[name], url = tabUrl(name);
       let error = url ? null : 'not-configured';
+      if (!url && tab.optional) return { data: EMPTY[name], source: 'none', at: null, error };
       if (url) {
         try {
           const r = await env.fetch(url + '&cachebust=' + Date.now());
@@ -189,6 +199,7 @@
       state.airlines = byName.airlines;
       state.settings = byName.settings;
       state.boxTime = byName.boxTime;
+      state.airports = byName.airports || [];
       listeners.forEach(cb => { try { cb(state); } catch (e) { console.error(e); } });
       return state;
     }
@@ -224,5 +235,5 @@
     };
   }
 
-  return { create, parseCSV, parseDays, parseFlights, parseTable, parseAirlines, parseSettings, parseBoxTime };
+  return { create, parseCSV, parseDays, parseFlights, parseTable, parseAirlines, parseSettings, parseBoxTime, parseAirports };
 });

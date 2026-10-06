@@ -22,6 +22,7 @@
       config: '1002',   // "Config" tab
       boxTime: '1003',  // "BoxTime" tab
       audit: '1004',    // "Audit" tab (phase 4)
+      airports: null,   // optional "Airports" tab, only for SHOW_SCHEDULE_ESTIMATE (off)
     },
     SHEET_REFRESH_MS: 5 * 60 * 1000,
 
@@ -40,6 +41,7 @@
       DIAGNOSTIC: false,       // phase 2: callsign diagnostic panel
       CONFIG_PANEL: false,     // phase 4: online configuration panel
       NEW_LOOK: false,         // refreshed visual: lighter background, Inter font, panel closed by default
+      DEMO_MODE: true,         // ?demo=live|lost|never|landed opens the fictive flight XX123 with simulated observations
     },
   };
 
