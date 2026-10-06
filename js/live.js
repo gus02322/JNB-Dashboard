@@ -273,22 +273,24 @@
   /* ---------- demo mode: simulated observations for a fictive flight, never real data ---------- */
   let demo = null;
   function setDemo(kind, f, airport) {
-    const now = Date.now(), nm = nowMins(new Date()), eta = C.t2m(f.eta);
-    const at = (km) => ({ lat: airport.lat + km / C.KM_PER_NM / 60, lon: airport.lon });
+    const t0 = Date.now(), nm0 = nowMins(new Date()), eta = C.t2m(f.eta);
+    const at = (nm) => ({ lat: airport.lat + nm / 60, lon: airport.lon }); // nm due north of the airport
     const base = { etd: undefined, sealAuto: false, truckAuto: false, etdAuto: false, simulated: true };
+    // lost: last observation 35 min before the demo started, at the distance matching the ETA then
+    const lostSeenAt = t0 - 35 * 60e3, lostGs = 460;
+    const lostLast = Object.assign(at((eta - (nm0 - 35) - 5) / 60 * lostGs), { gs: lostGs, alt: 35000 });
     const views = {
       live: () => {
-        const distNm = (eta - nm - 5) / 60 * 450;
-        return Object.assign({}, base, { level: 'live', ageMin: 1.5, eta, confidence: 'far', seenAt: now - 90e3,
-          pos: Object.assign(at(distNm * C.KM_PER_NM), { dist: distNm, gs: 450, alt: 33000 }) });
+        const nm = nowMins(new Date()), distNm = Math.max(0, (eta - nm - 5) / 60 * 450);
+        return Object.assign({}, base, { level: 'live', ageMin: 1.5, eta, confidence: 'far', seenAt: Date.now() - 90e3,
+          pos: Object.assign(at(distNm), { dist: distNm, gs: 450, alt: 33000 }) });
       },
       lost: () => {
-        const ageMin = 35, gs = 460, last = Object.assign(at((eta - (nm - ageMin) - 5) / 60 * gs * C.KM_PER_NM), { gs, alt: 35000 });
-        const p = settings();
-        return Object.assign({}, base, { level: 'lost', ageMin, eta, seenAt: now - ageMin * 60e3, pos: last,
-          dr: C.deadReckon(last, airport, eta, nm, ageMin, p) });
+        const ageMin = (Date.now() - lostSeenAt) / 60000;
+        return Object.assign({}, base, { level: 'lost', ageMin, eta, seenAt: lostSeenAt, pos: lostLast,
+          dr: C.deadReckon(lostLast, airport, eta, nowMins(new Date()), ageMin, settings()) });
       },
-      landed: () => Object.assign({}, base, { level: 'landed', ageMin: 10, eta: nm - 10, landedAt: nm - 10, landed: true, seenAt: now - 10 * 60e3 }),
+      landed: () => Object.assign({}, base, { level: 'landed', ageMin: (Date.now() - t0) / 60000 + 10, eta: nm0 - 10, landedAt: nm0 - 10, landed: true, seenAt: t0 - 10 * 60e3 }),
       never: () => null,
     };
     demo = { id: f.id, view: views[kind] || views.never, history: () => (kind === 'never' ? { median: 12, n: 7, simulated: true } : null) };
