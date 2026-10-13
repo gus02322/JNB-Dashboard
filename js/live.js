@@ -106,7 +106,7 @@
     const cs = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))].slice(0, 40);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
-    const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(',') });
+    const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
     if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) { qs.set('lat', p.lat); qs.set('lon', p.lon); qs.set('r', POINT_RADIUS_NM); }
 
     let payload;
