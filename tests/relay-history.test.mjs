@@ -237,3 +237,28 @@ test('the public web app stops calling upstream above the per minute limit', () 
   }
   assert.ok(limited);
 });
+
+test('departures: take-off recorded by the trigger and shared with every screen through doGet', () => {
+  const e = makeEnv();
+  // ZZ790 departs 12:00: seen on the ground at 11:50, then airborne 40 nm away at 12:10 (480 kt: 5 min flown)
+  e.at('2026-10-06T11:50:00Z'); e.api({ ZZC790: ground }); e.ctx.recordHistory();
+  e.at('2026-10-06T12:10:00Z'); e.api({ ZZC790: [{ flight: 'ZZC790', lat: 0.66, lon: 0, gs: 480, alt_baro: 20000, track: 0, seen_pos: 0 }] }); e.ctx.recordHistory();
+  const d = e.sheets.Departures.rows.slice(1).filter(r => r && r[0]);
+  assert.equal(d.length, 1);
+  assert.deepEqual([d[0][0], d[0][2], d[0][3], d[0][5], d[0][6]], ['2026-10-06', 'ZZ790', '12:00', '2026-10-06 12:05', 'yes']);
+  const out = JSON.parse(e.ctx.doGet({ parameter: { u: 'DEMO' } }));
+  assert.deepEqual(out.today.dep['ZZ790|12:00'], { at: '12:05', day: '2026-10-06', est: true });
+});
+
+test('inbound under number - 1 when FLIGHT_IN is empty; the outbound number flying away is ignored', () => {
+  const e = makeEnv();
+  // YY456 (ETA 23:50, no FLIGHT_IN): YYB455 approaches, YYB456 flies away elsewhere
+  e.at('2026-10-06T23:30:00Z'); e.api({ YYB455: flying(1, 180), YYB456: flying(-3, 180) }); e.ctx.recordHistory();
+  e.at('2026-10-06T23:58:00Z'); e.api({ YYB455: ground, YYB456: [] }); e.ctx.recordHistory();
+  const r = e.history().find(x => x[1] === 'YY456');
+  assert.equal(r[6], '2026-10-06 23:58');
+  assert.equal(r[11], 'YYB455');
+  assert.equal(e.table('DEMO').find(x => x.FLIGHT === 'YY456').AUTO_CALLSIGN, 'YYB455');
+  const out = JSON.parse(e.ctx.doGet({ parameter: { u: 'DEMO' } }));
+  assert.equal(out.today.arr['YY456|23:50'], '23:58');
+});

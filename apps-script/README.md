@@ -4,7 +4,8 @@ Un seul script, gratuit, attaché au Sheet. Il fait trois choses :
 
 1. **URL publique en lecture seule** (`doGet`) : le navigateur ne peut pas appeler l'API de suivi des vols (CORS). Le relais l'appelle depuis les serveurs de Google, garde chaque réponse 55 secondes en cache (tous les écrans partagent les mêmes appels) et renvoie aussi l'écart médian des jours passés. Cette URL n'écrit jamais dans le Sheet et n'appelle jamais l'API d'horaires. Il n'y a pas de `doPost`. Les appels vers l'extérieur sont plafonnés à 150 par minute pour protéger le quota gratuit.
 2. **Horaires automatiques** (menu du Sheet et déclencheur de nuit) : remplit les colonnes `AUTO_*` de chaque onglet d'unité à partir de l'API AeroDataBox.
-3. **Historique** (déclencheur toutes les 15 min) : enregistre l'heure réelle d'atterrissage (onglet `History`) et apprend le callsign réellement vu (`AUTO_CALLSIGN`).
+3. **Historique et décollages** (déclencheur toutes les 15 min, même si aucun écran n'est ouvert) : enregistre l'heure réelle d'atterrissage (onglet `History`) et de décollage (onglet `Departures`), apprend le callsign réellement vu (`AUTO_CALLSIGN`). Le relais renvoie aux écrans les atterrissages et décollages du jour : un écran ouvert après que l'avion a quitté la couverture ADS-B (au-dessus de l'océan par exemple) sait quand même qu'il a décollé.
+4. **Vol arrivant inconnu** (`FLIGHT_IN` vide) : le numéro de départ, puis le numéro moins 1 et plus 1 sont cherchés ; seul l'avion qui vole vers l'aéroport est retenu, et son callsign est appris.
 
 Chaque changement automatique est écrit dans l'onglet `Audit` (DATE, SOURCE, KEY, OLD, NEW).
 

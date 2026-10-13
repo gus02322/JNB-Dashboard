@@ -89,6 +89,16 @@
     return out;
   }
 
+  // Likely numbers of the inbound flight when FLIGHT_IN is unknown: number - 1, then number + 1
+  // (an aircraft usually arrives under the departing number minus or plus one). Never shown as a fact:
+  // live tracking only keeps the one actually flying to the airport.
+  function neighbours(flight) {
+    const n = normFlight(flight);
+    if (!n) return [];
+    const k = parseInt(n.number, 10);
+    return [k - 1, k + 1].filter(x => x > 0).map(x => n.prefix + x + n.suffix);
+  }
+
   /* ---------- rules ---------- */
 
   function listOf(v) { return String(v || '').split(/[,;|\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean); }
@@ -282,7 +292,7 @@
   };
 
   return {
-    DAY, RULE_DEFS, DEFAULTS, t2m, m2t, diff, fmtOffset, normFlight, sameFlight, callsigns, parseOffset, parseExceptions,
+    DAY, RULE_DEFS, DEFAULTS, t2m, m2t, diff, fmtOffset, normFlight, sameFlight, callsigns, neighbours, parseOffset, parseExceptions,
     readRules, isWidebody, profileOf, boxSlot, computeRow, applyEta, cancelPlan, checkRow, tzOffsetMin, clock,
   };
 });

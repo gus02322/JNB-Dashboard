@@ -41,6 +41,11 @@ var HISTORY_WATCH_BEFORE_MIN = 120; // record a flight from its scheduled ETA - 
 var HISTORY_WATCH_AFTER_MIN = 180;  // until its scheduled ETA + 180 min (late arrivals)
 var AMBIGUITY_MARGIN_MIN = 60;      // two Sheet rows this close to the observation: ambiguous
 var STATS_CACHE_SEC = 600;
+var DEPARTURES_SHEET = 'Departures';
+var DEPARTURES_HEAD = ['DATE', 'UNIT', 'FLIGHT', 'ETD_SCHEDULED', 'GROUND_SEEN_AT', 'DEPARTED_AT', 'ESTIMATED', 'LAST_SEEN_AT', 'CALLSIGN'];
+var DEP_WATCH_BEFORE_MIN = 60;      // watch a departure from its scheduled ETD - 60 min
+var DEP_WATCH_AFTER_MIN = 240;      // until ETD + 240 min
+var TODAY_CACHE_SEC = 120;
 
 var SCHEDULE_SHEET = 'ScheduleCache';
 var SCHEDULE_HEAD = ['AIRPORT', 'DATE', 'DIR', 'NUMBER', 'TIME', 'CALLSIGN', 'AIRCRAFT', 'REG', 'AIRLINE', 'STATUS', 'FETCHED_AT'];
@@ -106,6 +111,11 @@ function doGet(e) {
   } catch (err) {
     out.errors.push({ id: 'history', message: String(err) });
   }
+  try {
+    out.today = todayEvents(cleanUnit(p.u));
+  } catch (err) {
+    out.errors.push({ id: 'today', message: String(err) });
+  }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -167,6 +177,29 @@ function historyStats(unit) {
   return res;
 }
 
+// Landings and take-offs already detected today by the trigger, shared with every screen
+// (a screen opened after the aircraft left the live coverage still knows it took off).
+function todayEvents(unit) {
+  var cache = CacheService.getScriptCache(), ck = 'today:' + (unit || ''), hit = cache.get(ck);
+  if (hit) return JSON.parse(hit);
+  var ss = sheetBook(), cfg = readRules(ss, unit), out = { date: '', arr: {}, dep: {} };
+  unit = unit || cfg.DEFAULT_UNIT || '';
+  var date = Utilities.formatDate(new Date(), timeZone(cfg), 'yyyy-MM-dd');
+  out.date = date;
+  var hs = ss.getSheetByName(HISTORY_SHEET);
+  if (hs) readHistory(hs).rows.forEach(function (r) {
+    if (r.DATE !== date || !r.LANDED_AT || (r.UNIT && r.UNIT !== unit)) return;
+    out.arr[String(r.FLIGHT).toUpperCase() + '|' + r.ETA_SCHEDULED] = r.LANDED_AT.slice(-5);
+  });
+  var ds = ss.getSheetByName(DEPARTURES_SHEET);
+  if (ds) readTable(ds, DEPARTURES_HEAD).rows.forEach(function (r) {
+    if (r.DATE !== date || !r.DEPARTED_AT || (r.UNIT && r.UNIT !== unit)) return;
+    out.dep[String(r.FLIGHT).toUpperCase() + '|' + r.ETD_SCHEDULED] = { at: r.DEPARTED_AT.slice(-5), day: r.DEPARTED_AT.slice(0, 10), est: r.ESTIMATED === 'yes' };
+  });
+  cache.put(ck, JSON.stringify(out), TODAY_CACHE_SEC);
+  return out;
+}
+
 /* ---------------- history: recording and callsign learning (time trigger) ---------------- */
 
 function recordHistory() {
@@ -176,19 +209,21 @@ function recordHistory() {
     var ss = sheetBook(), base = readRules(ss, '');
     if (!isTrue(base.HISTORY_ENABLED)) return;
     var sh = historySheet(ss), table = readHistory(sh), audit = [];
+    var dsh = departuresSheet(ss), deps = readTable(dsh, DEPARTURES_HEAD);
     var list = units(ss, base);
-    list.forEach(function (unit) { recordUnit(ss, unit, table, audit); });
+    list.forEach(function (unit) { recordUnit(ss, unit, table, audit, deps); });
     writeHistory(sh, table, base);
+    writeDepartures(dsh, deps, base);
     writeAudit(ss, audit, base);
     var c = CacheService.getScriptCache();
-    c.remove('hist:stats:');
-    list.forEach(function (u) { c.remove('hist:stats:' + u); });
+    c.remove('hist:stats:'); c.remove('today:');
+    list.forEach(function (u) { c.remove('hist:stats:' + u); c.remove('today:' + u); });
   } finally {
     lock.releaseLock();
   }
 }
 
-function recordUnit(ss, unit, table, audit) {
+function recordUnit(ss, unit, table, audit, deps) {
   var cfg = readRules(ss, unit), tab = readUnit(ss, unit);
   if (!tab) return;
   var tz = timeZone(cfg), now = new Date(), nowMin = minutesOfDay(now, tz);
@@ -208,14 +243,31 @@ function recordUnit(ss, unit, table, audit) {
       var etaAbs = f.eta + d[2];
       if (nowMin < etaAbs - HISTORY_WATCH_BEFORE_MIN || nowMin > etaAbs + HISTORY_WATCH_AFTER_MIN) return;
       var arriving = f.flightIn || f.flight;
-      unique(callsignCandidates(arriving, prefixes).concat(f.callsigns)).forEach(function (c) {
+      var cs = unique(callsignCandidates(arriving, prefixes).concat(f.callsigns));
+      // FLIGHT_IN unknown: number - 1 and + 1 are tried too; only an aircraft flying to the airport counts.
+      if (!f.flightIn) neighbours(f.flight).forEach(function (x) { cs = unique(cs.concat(callsignCandidates(x, prefixes).slice(0, 1))); });
+      cs.forEach(function (c) {
         cands.push({ unit: unit, date: d[0], si: f.si, row: f, flight: arriving, etaText: f.etaText, etaAbs: etaAbs, cs: c });
       });
     });
   });
-  if (!cands.length) return;
+  // Departures of today and of yesterday (ETD after midnight), watched from ETD - 60 to ETD + 240 min.
+  var depCands = [];
+  [[today, dowToday, 0], [yesterday, dowYesterday, -1440]].forEach(function (d) {
+    tab.rows.forEach(function (f) {
+      if (f.etd === null || f.days.indexOf(String(d[1])) < 0) return;
+      var etdAbs = f.etd + (f.eta !== null && f.etd < f.eta ? 1440 : 0) + d[2];
+      if (nowMin < etdAbs - DEP_WATCH_BEFORE_MIN || nowMin > etdAbs + DEP_WATCH_AFTER_MIN) return;
+      var dep = f.flightOut || f.flight;
+      callsignCandidates(dep, prefixes).forEach(function (c) {
+        depCands.push({ unit: unit, date: d[0], flight: dep, etdText: f.etdText, etdAbs: etdAbs, cs: c });
+      });
+    });
+  });
+  if (!cands.length && !depCands.length) return;
 
-  var fetched = fetchCallsigns(unique(cands.map(function (c) { return c.cs; })), CacheService.getScriptCache(), false);
+  var fetched = fetchCallsigns(unique(cands.concat(depCands).map(function (c) { return c.cs; })), CacheService.getScriptCache(), false);
+  if (deps) recordDepartures(depCands, fetched, deps, cfg, now, nowMin, tz, lat, lon);
   var radius = toNum(cfg.LANDED_RADIUS_NM, 5), margin = toNum(cfg.APPROACH_MARGIN_MIN, 5), minGs = toNum(cfg.MIN_GS_KT, 150);
   var outlier = toNum(cfg.HISTORY_OUTLIER_MAX_MIN, 360);
   var precision = toNum(PropertiesService.getScriptProperties().getProperty('TRIGGER_MIN'), Math.round(toNum(cfg.ADSB_REFRESH_SEC, 1200) / 60));
@@ -239,7 +291,8 @@ function recordUnit(ss, unit, table, audit) {
     var dist = haversineNm(ac.lat, ac.lon, lat, lon);
     if (ac.alt_baro === 'ground') {
       // Landing: on the ground near the airport after being seen in flight for this row.
-      if (dist <= radius && rec && rec.FIRST_SEEN_AT && !rec.LANDED_AT) {
+      // The callsign must be the one seen in flight: the departing aircraft parked under another number is not a landing.
+      if (dist <= radius && rec && rec.FIRST_SEEN_AT && !rec.LANDED_AT && (!rec.CALLSIGN || rec.CALLSIGN === cs)) {
         var dev = Math.round(obsMin - r.etaAbs); // both relative to today's midnight: midnight handled
         upsert(table, r, { LANDED_AT: stamp, DEVIATION_MIN: dev, PRECISION_MIN: precision,
           NOTE: Math.abs(dev) > outlier ? 'outlier, ignored in the median' : (rec.NOTE || '') });
@@ -266,6 +319,71 @@ function recordUnit(ss, unit, table, audit) {
     if (l.row.auto.AUTO_CALLSIGN !== l.cs) changes.push({ row: l.row, values: { AUTO_CALLSIGN: l.cs } });
   });
   applyChanges(tab, changes, 'live tracking: callsign seen', audit, cfg);
+}
+
+// Take-off: seen on the ground at the airport then airborne, or first seen airborne flying away
+// (take-off time then estimated from the distance flown at the current ground speed).
+function recordDepartures(depCands, fetched, deps, cfg, now, nowMin, tz, lat, lon) {
+  var radius = toNum(cfg.LANDED_RADIUS_NM, 5), byKey = {};
+  deps.rows.forEach(function (r) { byKey[r.UNIT + '|' + r.DATE + '|' + r.FLIGHT + '|' + r.ETD_SCHEDULED] = r; });
+  var done = {};
+  depCands.forEach(function (c) {
+    var k = c.unit + '|' + c.date + '|' + c.flight + '|' + c.etdText;
+    if (done[k]) return;
+    var acs = (fetched.cs[c.cs] || []).filter(function (a) { return typeof a.lat === 'number'; });
+    if (!acs.length) return;
+    var ac = acs.sort(function (a, b) { return (a.seen_pos || 0) - (b.seen_pos || 0); })[0];
+    var rec = byKey[k];
+    if (!rec) { rec = {}; DEPARTURES_HEAD.forEach(function (h) { rec[h] = ''; }); rec.DATE = c.date; rec.UNIT = c.unit; rec.FLIGHT = c.flight; rec.ETD_SCHEDULED = c.etdText; }
+    var dist = haversineNm(ac.lat, ac.lon, lat, lon), seenMs = now.getTime() - (ac.seen_pos || 0) * 1000;
+    var stamp = function (ms) { return Utilities.formatDate(new Date(ms), tz, 'yyyy-MM-dd HH:mm'); };
+    if (ac.alt_baro === 'ground') {
+      if (dist <= radius && !rec.DEPARTED_AT) { rec.GROUND_SEEN_AT = stamp(seenMs); rec.CALLSIGN = c.cs; }
+    } else {
+      var away = typeof ac.track !== 'number' || dist <= radius ||
+        Math.abs(((ac.track - bearingDeg(lat, lon, ac.lat, ac.lon)) % 360 + 540) % 360 - 180) <= 100;
+      if (!away) return; // still coming in: not this departure
+      if (!rec.DEPARTED_AT) {
+        var flownMin = dist > radius && ac.gs > 50 ? dist / ac.gs * 60 : 0;
+        rec.DEPARTED_AT = stamp(seenMs - flownMin * 60000);
+        rec.ESTIMATED = flownMin > 0 ? 'yes' : 'no';
+      }
+      rec.LAST_SEEN_AT = stamp(seenMs);
+      rec.CALLSIGN = c.cs;
+    }
+    if (!byKey[k]) { byKey[k] = rec; deps.rows.push(rec); }
+    done[k] = true;
+  });
+}
+
+function departuresSheet(ss) {
+  var sh = ss.getSheetByName(DEPARTURES_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(DEPARTURES_SHEET);
+    sh.getRange(1, 1, 1, DEPARTURES_HEAD.length).setNumberFormat('@').setValues([DEPARTURES_HEAD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function readTable(sh, head) {
+  var v = sh.getDataRange().getDisplayValues(), rows = [];
+  v.slice(1).forEach(function (r) {
+    if (!r[0]) return;
+    var o = {};
+    head.forEach(function (h, i) { o[h] = r[i] === undefined ? '' : String(r[i]); });
+    rows.push(o);
+  });
+  return { rows: rows };
+}
+// Rewrites the tab, keeping the last 7 days.
+function writeDepartures(sh, deps, cfg) {
+  var cutoff = Utilities.formatDate(new Date(Date.now() - 7 * 86400000), timeZone(cfg), 'yyyy-MM-dd');
+  var rows = deps.rows.filter(function (o) { return o.DATE >= cutoff; })
+    .sort(function (a, b) { return (a.DATE + a.ETD_SCHEDULED).localeCompare(b.DATE + b.ETD_SCHEDULED); })
+    .map(function (o) { return DEPARTURES_HEAD.map(function (h) { return o[h]; }); });
+  var last = sh.getLastRow();
+  if (last > 1) sh.getRange(2, 1, last - 1, DEPARTURES_HEAD.length).clearContent();
+  if (rows.length) sh.getRange(2, 1, rows.length, DEPARTURES_HEAD.length).setNumberFormat('@').setValues(rows);
 }
 
 /* ---------------- schedules: AeroDataBox (menu and daily trigger only) ---------------- */
@@ -491,7 +609,7 @@ function installTriggers() {
   ScriptApp.newTrigger('recordHistory').timeBased().everyMinutes(n).create();
   ScriptApp.newTrigger('resolveDaily').timeBased().everyDays(1).atHour(2).create();
   PropertiesService.getScriptProperties().setProperty('TRIGGER_MIN', String(n));
-  historySheet(ss); scheduleSheet(ss); auditSheet(ss);
+  historySheet(ss); scheduleSheet(ss); auditSheet(ss); departuresSheet(ss);
   return say('History every ' + n + ' min, schedules every night at about 02:00. ' + (tzWarning(cfg) || 'Time zone OK: ' + timeZone(cfg)));
 }
 /** Kept for older instructions. */
@@ -583,6 +701,7 @@ function readUnit(ss, unit) {
     AUTO_COLS.forEach(function (c) { auto[c] = get(r, c); });
     var manual = { ETA: t2m(get(r, 'ETA')) !== null ? get(r, 'ETA') : '', ETD: t2m(get(r, 'ETD')) !== null ? get(r, 'ETD') : '', FLIGHT_IN: get(r, 'FLIGHT_IN').toUpperCase(), DAYS: get(r, 'DAYS') };
     var etaText = manual.ETA || (t2m(auto.AUTO_STA) !== null ? auto.AUTO_STA : '');
+    var etdText = manual.ETD || (t2m(auto.AUTO_STD) !== null ? auto.AUTO_STD : '');
     var dRaw = (manual.DAYS || auto.AUTO_DAYS).replace(/\s/g, '');
     var active = get(r, 'ACTIVE').toUpperCase();
     var days = /^(NO|FALSE|0)$/.test(active) ? '' : dRaw.toLowerCase() === 'daily' ? '1234567' : dRaw === '0' ? '' : dRaw;
@@ -590,6 +709,7 @@ function readUnit(ss, unit) {
     rows.push({
       sheetRow: hi + 2 + i, si: /^\d+$/.test(siRaw) ? parseInt(siRaw, 10) : null, flight: flight,
       flightIn: (manual.FLIGHT_IN || auto.AUTO_FLIGHT_IN).toUpperCase(), etaText: etaText, eta: t2m(etaText), days: days,
+      etdText: etdText, etd: t2m(etdText), flightOut: get(r, 'FLIGHT_OUT').toUpperCase().replace(/\s+/g, ''),
       callsigns: [get(r, 'CALLSIGN'), auto.AUTO_CALLSIGN].map(function (c) { return String(c).toUpperCase().replace(/\s+/g, ''); }).filter(function (c) { return /^[A-Z0-9]{3,8}$/.test(c); }),
       auto: auto, manual: manual,
     });
@@ -740,6 +860,12 @@ function normFlight(s) {
   if (!m || (kind === 'IATA' && /^\d\d$/.test(m[1]))) return null;
   var number = String(parseInt(m[2], 10));
   return { norm: m[1] + number + m[3], prefix: m[1], number: number, suffix: m[3], kind: kind, raw: code };
+}
+function neighbours(flight) {
+  var n = normFlight(flight);
+  if (!n) return [];
+  var k = parseInt(n.number, 10);
+  return [k - 1, k + 1].filter(function (x) { return x > 0; }).map(function (x) { return n.prefix + x + n.suffix; });
 }
 function callsignCandidates(flight, prefixes) {
   var n = normFlight(flight);

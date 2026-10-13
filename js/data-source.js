@@ -165,7 +165,10 @@
       if (al && !al.iata && !al.icao) flag('warn', o, 'Airline "' + al.name + '" has no IATA / ICAO code: tracking uses the flight prefix ' + n.prefix + (byPrefix ? ' (' + byPrefix.name + ', ' + (byPrefix.icao || '?') + ')' : ''));
       else if (al && al.iata && n.kind === 'IATA' && al.iata !== n.prefix) flag('warn', o, 'Flight prefix ' + n.prefix + ' does not match ' + al.name + ' (' + al.iata + ')');
       const flightIn = o.FLIGHT_IN || auto('FLIGHT_IN');
+      // FLIGHT_IN unknown: the departing number, then number - 1 and + 1 are tried (live tracking keeps
+      // only the aircraft really flying to the airport, with a matching route).
       const inCalls = R.callsigns(flightIn || flightRaw, prefixes);
+      const inGuess = flightIn ? [] : R.neighbours(flightRaw).flatMap(x => R.callsigns(x, prefixes).slice(0, 1));
       const extra = [o.CALLSIGN, auto('CALLSIGN')].map(c => String(c || '').toUpperCase().replace(/\s+/g, '')).filter(c => /^[A-Z0-9]{3,8}$/.test(c));
       if (!inCalls.length && !extra.length && days.length) flag('warn', o, 'No ICAO code for prefix ' + n.prefix + ': live tracking impossible (add it to Airlines or fill CALLSIGN)');
       const status = o.STATUS || (manualTimes ? 'Manual override' : eta || etd ? 'Resolved' : 'Unresolved');
@@ -184,7 +187,7 @@
         unit: ctx.unit, row: o._row, si, norm: n.norm,
         airline: airlineName || n.prefix, mealType: (o.MEAL || '').toLowerCase(), flight: flightRaw,
         eta, etd, sealing: time(o.SEALING) || R.m2t(plan.seal), truck: time(o.TRUCK) || R.m2t(plan.truck),
-        days, flightOut: o.FLIGHT_OUT || '', flightIn, callsigns: [...new Set(inCalls.concat(extra))], outCallsigns: R.callsigns(o.FLIGHT_OUT || flightRaw, prefixes),
+        days, flightOut: o.FLIGHT_OUT || '', flightIn, callsigns: [...new Set(inCalls.concat(extra))], inGuess, outCallsigns: R.callsigns(o.FLIGHT_OUT || flightRaw, prefixes),
         originIcao: (o.ORIGIN_ICAO || '').toUpperCase(), durationMin: o.DURATION_MIN ? parseInt(o.DURATION_MIN, 10) || null : null,
         status, notes: o.NOTES || '', cancelled, aircraft: row.aircraft,
         src: { eta: time(o.ETA) ? 'manual' : eta ? 'auto' : '', etd: time(o.ETD) ? 'manual' : etd ? 'auto' : '', sealing: plan.sealSource, truck: plan.truckSource,
