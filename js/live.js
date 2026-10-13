@@ -96,14 +96,17 @@
     const csMap = {};
     // The arriving aircraft flies under FLIGHT_IN when set; Flight is the departing flight number.
     // Candidates: ICAO conversion of FLIGHT_IN, then CALLSIGN and the callsign learned by the relay.
-    inbound.forEach(f => { csMap[f.id] = f.callsigns || C.callsignCandidates(f.flightIn || f.flight, prefixes); });
+    inbound.forEach(f => { csMap[f.id] = (f.callsigns || C.callsignCandidates(f.flightIn || f.flight, prefixes)).concat((f.inGuess || []).filter(c => !(f.callsigns || []).includes(c))); });
     // Departing aircraft (Flight, or FLIGHT_OUT when set): watched from ETD - 60 min to ETD + 240 min.
     const outMap = {};
     flights.forEach(f => {
       const s = C.schedule(f);
       if (s.etd !== null && nm >= s.etd - DEP_WATCH_BEFORE && nm <= s.etd + DEP_WATCH_AFTER) outMap[f.id] = f.outCallsigns || C.callsignCandidates(f.flightOut || f.flight, prefixes);
     });
-    const cs = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))].slice(0, 40);
+    // Sure callsigns first, guesses (number - 1 / + 1) last: the relay answers at most 30 per call.
+    const guesses = new Set(inbound.flatMap(f => f.inGuess || []));
+    const all = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))];
+    const cs = all.filter(c => !guesses.has(c)).concat(all.filter(c => guesses.has(c))).slice(0, 30);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
     const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
@@ -139,18 +142,26 @@
     inbound.forEach(f => {
       const st = fs(f.id), cands = csMap[f.id];
       const found = cands.filter(c => (payload.cs[c] || []).length || point.some(a => C.cleanCallsign(a.flight) === c));
-      const ac = pickAircraft(cands.map(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c))));
-      const row = { flight: f.flightIn ? f.flight + ' (arrives as ' + f.flightIn + ')' : f.flight + ' (FLIGHT_IN empty)', candidates: cands, found, reason: '' };
+      const row = { flight: f.flightIn ? f.flight + ' (arrives as ' + f.flightIn + ')' : f.flight + ' (FLIGHT_IN empty: ' + f.flight + ', number - 1 and + 1 tried)', candidates: cands, found, reason: '' };
       if (!cands.length) row.reason = 'no ICAO prefix in the Airlines tab';
-      if (!ac) { row.reason = row.reason || 'not found'; rows.push(row); return; }
-      const callsign = C.cleanCallsign(ac.flight) || found[0];
-      st.callsign = callsign;
-      const route = routeStatus(routes[callsign], p.airportIcao);
+      // Every aircraft answering one of the candidates, evaluated; the one coming to the airport wins.
+      // The callsign already followed for this flight is kept first, so the choice does not jump.
+      const options = [];
+      cands.forEach(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c)).forEach(ac => {
+        const cs = C.cleanCallsign(ac.flight) || c, route = routeStatus(routes[cs], p.airportIcao), est = C.liveEta(ac, nm, p);
+        options.push({ ac, cs, route, est });
+      }));
+      const score = o => (o.route === 'mismatch' ? 0 : !o.est.usable ? 1 : o.est.landed ? (st.airborneSeen && o.cs === st.callsign ? 4 : 2) : 3) + (o.cs === st.callsign ? 0.5 : 0);
+      options.sort((a, b) => score(b) - score(a) || (a.ac.seen_pos ?? 999) - (b.ac.seen_pos ?? 999));
+      const best = options[0];
+      if (!best) { row.reason = row.reason || 'not found'; rows.push(row); return; }
+      const ac = best.ac, callsign = best.cs, route = best.route, est = best.est;
+      row.found = [...new Set(options.map(o => o.cs))];
       row.route = route;
       if (route === 'mismatch') { row.reason = 'route does not match the airport, ignored'; rows.push(row); return; }
-      const est = C.liveEta(ac, nm, p);
       row.dist = est.dist !== undefined ? Math.round(est.dist) : null;
       if (!est.usable) { row.reason = est.reason; rows.push(row); return; }
+      st.callsign = callsign;
       // Landed only after being seen in flight: a parked aircraft with the same callsign is not a landing.
       if (est.landed && !st.airborneSeen) { row.reason = 'on the ground at the airport, never seen in flight: not counted as landed'; rows.push(row); return; }
       if (!est.landed) st.airborneSeen = true;
@@ -200,8 +211,29 @@
       outRows.push(row);
     });
 
+    seedFromRelay(payload, flights, now);
     flights.forEach(f => recalc(f, p, nm));
     diag = { rows: rows.concat(outRows), near: [...new Set(point.map(a => C.cleanCallsign(a.flight)).filter(Boolean))].sort(), at: Date.now() };
+  }
+
+  // Landings and take-offs the relay trigger already detected today (every 15 min, without any screen
+  // open): a screen opened later, when the aircraft is out of live coverage, still knows them.
+  function seedFromRelay(payload, flights, now) {
+    const t = payload.today, iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    if (!t || t.date !== iso(now)) return;
+    flights.forEach(f => {
+      const st = fs(f.id);
+      const arr = t.arr && t.arr[String(f.flightIn || f.flight).toUpperCase() + '|' + f.eta];
+      if (arr && st.landedAt === undefined && C.t2m(arr) !== null) {
+        st.landedAt = st.eta = C.t2m(arr); st.confidence = 'landed'; st.airborneSeen = true; st.seenAt = Date.now(); st.fromRelay = true;
+        addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: arr, reason: 'landing detected by the relay' });
+      }
+      const dep = t.dep && t.dep[String(f.flightOut || f.flight).toUpperCase() + '|' + f.etd];
+      if (dep && st.departedAt === undefined && C.t2m(dep.at) !== null) {
+        st.departedAt = C.t2m(dep.at) + (dep.day && dep.day > t.date ? 1440 : 0); st.depEstimated = !!dep.est;
+        addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: dep.at, reason: 'take-off detected by the relay' + (dep.est ? ' (estimated)' : '') });
+      }
+    });
   }
 
   // Plan after the live ETA (rule engine: TURN slides with the ETA, DAYSTOP keeps its plan),
@@ -213,7 +245,7 @@
     const res = RU.applyEta(plan, st.eta, rules);
     st.dayStop = plan.profile === 'DAYSTOP';
     st.d1Check = res.d1Check;
-    if (res.marginAlert && !st.marginAlerted) {
+    if (res.marginAlert && !st.marginAlerted && plan.truck - nm >= 0) {
       st.marginAlerted = true;
       addLog({ flight: f.flight, field: 'Day stop margin', old: C.m2t(plan.truck), new: 'ETA ' + C.m2t(st.eta), reason: res.reason });
       tightQueue.push({ flight: f.flight, airline: f.airline, type: 'truck', lbl: 'Truck Dep', time: C.m2t(plan.truck), minsLeft: Math.round(plan.truck - nm), badge: 'Day stop margin' });
@@ -222,11 +254,12 @@
     const next = {};
     const reason = 'live ETA ' + C.m2t(st.eta) + (res.reason ? ' (' + res.reason + ')' : '');
     [['etd', 'ETD'], ['seal', 'Sealing'], ['truck', 'Truck Dep']].forEach(([k, label]) => {
-      const r = C.applyWithThreshold(prev[k], res[k], p.threshold);
+      // A Sealing or Truck already past is done: a late live estimate never moves it afterwards.
+      const r = k !== 'etd' && prev[k] !== null && prev[k] < nm ? { value: prev[k], changed: false } : C.applyWithThreshold(prev[k], res[k], p.threshold);
       next[k] = r.value;
       if (r.changed && prev[k] !== null) {
         addLog({ flight: f.flight, field: label, old: C.m2t(prev[k]), new: C.m2t(r.value), reason });
-        if (k !== 'etd' && r.value - nm < p.tight) {
+        if (k !== 'etd' && r.value - nm >= 0 && r.value - nm < p.tight) { // past times never alert
           tightQueue.push({ flight: f.flight, airline: f.airline, type: k === 'seal' ? 'seal' : 'truck', lbl: label, time: C.m2t(r.value), minsLeft: Math.round(r.value - nm) });
         }
       }

@@ -2022,7 +2022,7 @@ function renderFlightView(){
   else if(simOn){waiting=false;posTxt='Demo simulation: ETA '+m2t(L.eta)+' instead of '+m2t(sc.eta)+(L.dayStop?' · day stop: plan kept':'');}
   else if(!liveOn())posTxt='Live tracking is off: scheduled times shown';
   else if(sc.eta===null)posTxt='Departure only: no inbound aircraft to track';
-  else if(isToday(viewDate)&&sc.etd!==null&&nowMins()>sc.etd+30){waiting=false;posTxt='Departure scheduled at '+m2t(sc.etd)+': no live confirmation';}
+  else if(isToday(viewDate)&&sc.etd!==null&&nowMins()>sc.etd+30){waiting=false;posTxt='Departure scheduled at '+m2t(sc.etd)+': not seen by live tracking yet (no coverage on this route, or the relay trigger has not run). Check the flight tracker link below.';}
   else if(isToday(viewDate)&&nowMins()>t.eta+30){waiting=false;svg=`<g transform="translate(${P2[0]},${P2[1]-22})" opacity="0.6"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#5f6878" stroke-width="1.4" stroke-dasharray="2 2"/></g>`;posTxt='Arrival time passed: no live confirmation';}
   else{
     // Optional schedule based estimate (SHOW_SCHEDULE_ESTIMATE, off by default): grey, hollow, never shown as observed.
@@ -2099,6 +2099,7 @@ function tickFlightView(){
   if(upd){
     const age=s=>fmtAge((Date.now()-s)/60000);
     if(departed&&L.out&&L.out.seenAt)upd.textContent='Position updated '+age(L.out.seenAt)+' ago · live aircraft tracking (ADS-B)';
+    else if(departed)upd.textContent='Take-off detected by live aircraft tracking (ADS-B)'+(L.depEstimated?', time estimated from distance and speed':'');
     else if(level==='live')upd.textContent='Position updated '+age(L.seenAt)+' ago · live aircraft tracking (ADS-B)';
     else if(level==='lost')upd.textContent='Estimated position, not observed. Last seen '+age(L.seenAt)+' ago · confidence '+(L.dr?L.dr.confidence:'low');
     else if(level==='landed')upd.textContent='Landing detected by live aircraft tracking (ADS-B)';
