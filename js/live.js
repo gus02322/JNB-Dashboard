@@ -1,11 +1,12 @@
 /*
- * ANGA live tracking runtime (behind the LIVE_ADSB feature flag).
+ * Ops On Time live tracking runtime (behind the LIVE_ADSB feature flag).
  * Polls the Apps Script relay (never the tracking API directly), keeps one shared state for every
  * view, applies estimates only when they move by RECALC_THRESHOLD_MIN, logs every recalculation,
  * and falls back to scheduled times when the relay does not answer.
  */
 (function (root) {
   const C = root.AngaLiveCore;
+  const RU = root.AngaRules;
   const STATE_KEY = 'anga_live_state';
   const LOG_KEY = 'anga_live_log';
   const LOG_MAX = 300;
@@ -15,7 +16,6 @@
   const APPROACH_NM = 150;       // confidence label "approach", beyond: "far"
   const DEP_WATCH_BEFORE = 60;   // watch for the departure from ETD - 60 min
   const DEP_WATCH_AFTER = 240;   // until ETD + 240 min
-  const D1_GAP_FLAG_MIN = 30;    // D-1 Box Time slots are never moved, a gap this large is flagged
 
   let data, cfg, listeners = [], timer = null, failures = 0;
   let status = { state: 'off', at: null, error: null };
@@ -27,6 +27,7 @@
   function saveJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* quota */ } }
 
   function todayKey(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function unitNow() { return RU.clock.now(); } // wall clock of the unit (TIMEZONE)
   function nowMins(d) { return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; }
   const DOW = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
@@ -63,7 +64,7 @@
 
   function todaysFlights(now) {
     const dow = DOW[now.getDay()];
-    return data.get().flights.filter(f => f.days.includes(dow));
+    return data.get().flights.filter(f => f.days.includes(dow) && !f.cancelled && !sims[f.id]);
   }
 
   function pickAircraft(lists) {
@@ -82,7 +83,7 @@
   async function tick() {
     const p = settings();
     if (!p.relay) { status = { state: 'not-configured', at: null, error: 'LIVE_RELAY_URL is empty' }; notify(); return schedule(p.refreshSec); }
-    const now = new Date(), nm = nowMins(now), day = todayKey(now);
+    const now = unitNow(), nm = nowMins(now), day = todayKey(now);
     ensureState(day);
     const prefixes = data.icaoPrefixes();
     const flights = todaysFlights(now);
@@ -94,17 +95,18 @@
     });
     const csMap = {};
     // The arriving aircraft flies under FLIGHT_IN when set; Flight is the departing flight number.
-    inbound.forEach(f => { csMap[f.id] = C.callsignCandidates(f.flightIn || f.flight, prefixes); });
+    // Candidates: ICAO conversion of FLIGHT_IN, then CALLSIGN and the callsign learned by the relay.
+    inbound.forEach(f => { csMap[f.id] = f.callsigns || C.callsignCandidates(f.flightIn || f.flight, prefixes); });
     // Departing aircraft (Flight, or FLIGHT_OUT when set): watched from ETD - 60 min to ETD + 240 min.
     const outMap = {};
     flights.forEach(f => {
       const s = C.schedule(f);
-      if (s.etd !== null && nm >= s.etd - DEP_WATCH_BEFORE && nm <= s.etd + DEP_WATCH_AFTER) outMap[f.id] = C.callsignCandidates(f.flightOut || f.flight, prefixes);
+      if (s.etd !== null && nm >= s.etd - DEP_WATCH_BEFORE && nm <= s.etd + DEP_WATCH_AFTER) outMap[f.id] = f.outCallsigns || C.callsignCandidates(f.flightOut || f.flight, prefixes);
     });
-    const cs = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))].slice(0, 30);
+    const cs = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))].slice(0, 40);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
-    const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(',') });
+    const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
     if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) { qs.set('lat', p.lat); qs.set('lon', p.lon); qs.set('r', POINT_RADIUS_NM); }
 
     let payload;
@@ -202,18 +204,25 @@
     diag = { rows: rows.concat(outRows), near: [...new Set(point.map(a => C.cleanCallsign(a.flight)).filter(Boolean))].sort(), at: Date.now() };
   }
 
-  // Estimated ETD, Sealing, Truck and Box Time (D slots only), applied with the threshold.
+  // Plan after the live ETA (rule engine: TURN slides with the ETA, DAYSTOP keeps its plan),
+  // applied only when a value moves by RECALC_THRESHOLD_MIN. Every change is logged.
   function recalc(f, p, nm) {
-    const st = fs(f.id), s = C.schedule(f);
-    if (st.eta === undefined) return;
-    const est = C.estimateDeparture(f, st.eta, p);
-    if (!est) return;
-    st.dayStop = est.dayStop;
-    const prev = st.applied || { etd: s.etd, seal: s.seal, truck: s.truck };
+    const st = fs(f.id), plan = f.plan;
+    if (st.eta === undefined || !plan) return;
+    const rules = data.get().rules || RU.readRules(() => undefined);
+    const res = RU.applyEta(plan, st.eta, rules);
+    st.dayStop = plan.profile === 'DAYSTOP';
+    st.d1Check = res.d1Check;
+    if (res.marginAlert && !st.marginAlerted) {
+      st.marginAlerted = true;
+      addLog({ flight: f.flight, field: 'Day stop margin', old: C.m2t(plan.truck), new: 'ETA ' + C.m2t(st.eta), reason: res.reason });
+      tightQueue.push({ flight: f.flight, airline: f.airline, type: 'truck', lbl: 'Truck Dep', time: C.m2t(plan.truck), minsLeft: Math.round(plan.truck - nm), badge: 'Day stop margin' });
+    }
+    const prev = st.applied || { etd: plan.etd, seal: plan.seal, truck: plan.truck };
     const next = {};
-    const reason = 'live ETA ' + C.m2t(st.eta) + (est.dayStop ? ' (day stop, ETD kept)' : '');
+    const reason = 'live ETA ' + C.m2t(st.eta) + (res.reason ? ' (' + res.reason + ')' : '');
     [['etd', 'ETD'], ['seal', 'Sealing'], ['truck', 'Truck Dep']].forEach(([k, label]) => {
-      const r = C.applyWithThreshold(prev[k], est[k], p.threshold);
+      const r = C.applyWithThreshold(prev[k], res[k], p.threshold);
       next[k] = r.value;
       if (r.changed && prev[k] !== null) {
         addLog({ flight: f.flight, field: label, old: C.m2t(prev[k]), new: C.m2t(r.value), reason });
@@ -223,42 +232,86 @@
       }
     });
     st.applied = next;
-    st.boxShift = next.seal !== null && s.seal !== null ? next.seal - s.seal : 0;
+    st.boxShift = next.seal !== null && plan.seal !== null ? next.seal - plan.seal : 0;
   }
 
   let tightQueue = [];
 
-  // Box Time slot for one BoxTime row: { m, auto, flagged }.
-  // D slots follow the live Sealing shift unless they are already past. D-1 slots never move.
-  function boxSlot(b, f, base, nm) {
-    const st = f && state && state.flights[f.id];
-    if (!st || !st.applied || !st.boxShift || status.state !== 'ok') return { m: base, auto: false, flagged: false };
-    if (b.day !== 'D' || base <= nm) return { m: base, auto: false, flagged: Math.abs(st.boxShift) >= D1_GAP_FLAG_MIN };
-    return { m: base + st.boxShift, auto: true, flagged: false };
+  // Box Time of one flight: { day, m, base, auto, check, hold, source }.
+  // D slots follow the Sealing shift unless already past. D-1 slots never move: they are marked Check.
+  function boxSlot(f, nm) {
+    const b = f && f.box;
+    if (!b) return null;
+    const out = { day: b.day, m: b.m, base: b.m, auto: false, check: false, hold: false, source: b.source };
+    const v = forFlight(f);
+    if (f.cancelled || (v && v.cancelled)) { out.hold = true; return out; }
+    if (!v || !v.boxShift) return out;
+    if (b.day !== 'D') { out.check = true; return out; }
+    if (!v.simulated && nm !== undefined && nm >= 0 && b.m <= nm) return out;
+    out.m = b.m + v.boxShift; out.auto = true;
+    return out;
   }
 
-  // Live view of one flight for the UI, or null when nothing live applies.
+  // Live (or simulated) view of one flight for the UI, or null when nothing applies.
   // level: 'live' (fresh position), 'lost' (seen then lost: estimated, never shown as live),
-  // 'landed' (detected on the ground after being seen in flight). dr: dead reckoning for 'lost'.
+  // 'landed' (detected on the ground after being seen in flight), 'sim' (demo simulation).
   function forFlight(f) {
-    if (demo && f && f.id === demo.id) return demo.view();
-    if (status.state !== 'ok' || !state || !f) return null;
+    if (!f) return null;
+    if (sims[f.id]) return simView(f);
+    if (demo && f.id === demo.id) return demo.view();
+    if (status.state !== 'ok' || !state) return null;
     const st = state.flights[f.id];
     if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out } : null;
-    const s = C.schedule(f), a = st.applied || {}, p = settings();
+    const plan = f.plan || {}, a = st.applied || {}, p = settings();
     const level = C.arrivalLevel(st, Date.now(), p), ageMin = st.seenAt ? (Date.now() - st.seenAt) / 60000 : null;
     let dr = null;
     if (level === 'lost' && st.pos && Number.isFinite(p.lat)) {
-      const now = new Date();
-      dr = C.deadReckon(st.pos, { lat: p.lat, lon: p.lon }, st.eta, nowMins(now), ageMin, p);
+      dr = C.deadReckon(st.pos, { lat: p.lat, lon: p.lon }, st.eta, nowMins(unitNow()), ageMin, p);
     }
     return {
       level, ageMin, dr, landedAt: st.landedAt,
       eta: st.eta, confidence: st.confidence, landed: !!st.landedAt, routeOk: st.routeOk, pos: st.pos, seenAt: st.seenAt,
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
-      sealAuto: a.seal !== undefined && a.seal !== s.seal, truckAuto: a.truck !== undefined && a.truck !== s.truck, etdAuto: a.etd !== undefined && a.etd !== s.etd,
+      sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
+      boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? st.eta - plan.eta : null,
     };
   }
+
+  /* ---------- demo simulation: delays, early arrivals, cancellations. Never written anywhere. ---------- */
+  const sims = {};
+  let simLog = [];
+  function simView(f) {
+    const s = sims[f.id], plan = f.plan, rules = data.get().rules;
+    if (s.kind === 'cancel') return { level: 'sim', simulated: true, cancelled: true, sim: s, eta: plan.eta, boxShift: 0 };
+    const eta = plan.eta !== null ? plan.eta + s.delta : null;
+    // DAYSTOP with no STA: a delay simulates a later departure handling, nothing moves (rule)
+    const res = eta === null ? { moved: false, etd: plan.etd, seal: plan.seal, truck: plan.truck, d1Check: false } : RU.applyEta(plan, eta, rules);
+    return {
+      level: 'sim', simulated: true, sim: s, eta: eta, etd: res.etd, seal: res.seal, truck: res.truck, dayStop: plan.profile === 'DAYSTOP',
+      sealAuto: res.seal !== plan.seal, truckAuto: res.truck !== plan.truck, etdAuto: res.etd !== plan.etd,
+      boxShift: res.seal !== null && plan.seal !== null ? res.seal - plan.seal : 0, d1Check: !!res.d1Check, marginAlert: !!res.marginAlert,
+      delay: s.delta, reason: res.reason || '',
+    };
+  }
+  // kind: 'delay' (delta > 0), 'early' (delta < 0), 'cancel', or 'reset'.
+  function simulate(f, kind, minutes) {
+    if (!f || !f.plan) return null;
+    const before = sims[f.id] ? simView(f) : null;
+    if (kind === 'reset') { delete sims[f.id]; simLog.unshift({ at: new Date().toISOString(), flight: f.flight, field: 'All', old: '', new: 'reset', reason: 'demo reset', sim: true }); notify(); return null; }
+    const delta = kind === 'cancel' ? 0 : Math.round(minutes || 0);
+    sims[f.id] = { kind, delta, at: Date.now() };
+    const v = simView(f), plan = f.plan;
+    const entry = (field, a, b) => simLog.unshift({ at: new Date().toISOString(), flight: f.flight, field, old: C.m2t(a), new: b, reason: kind === 'cancel' ? 'demo: cancellation' : 'demo: ' + (delta > 0 ? '+' : '') + delta + ' min' + (v.reason ? ' (' + v.reason + ')' : ''), sim: true });
+    if (kind === 'cancel') entry('Flight', plan.etd, 'CANCELLED');
+    else {
+      entry('ETA', plan.eta, C.m2t(v.eta));
+      [['truck', 'Truck Dep'], ['seal', 'Sealing'], ['etd', 'ETD']].forEach(([k, lbl]) => { if (v[k] !== plan[k]) entry(lbl, plan[k], C.m2t(v[k])); });
+    }
+    if (simLog.length > LOG_MAX) simLog.length = LOG_MAX;
+    notify();
+    return { before, after: v };
+  }
+  function resetAll() { Object.keys(sims).forEach(k => delete sims[k]); notify(); }
 
   // Median deviation of past days for a flight, computed by the relay from the private History tab.
   // Key: arriving flight number and scheduled ETA (one flight number can have several Sheet rows).
@@ -273,7 +326,7 @@
   /* ---------- demo mode: simulated observations for a fictive flight, never real data ---------- */
   let demo = null;
   function setDemo(kind, f, airport) {
-    const t0 = Date.now(), nm0 = nowMins(new Date()), eta = C.t2m(f.eta);
+    const t0 = Date.now(), nm0 = nowMins(unitNow()), eta = C.t2m(f.eta);
     const at = (nm) => ({ lat: airport.lat + nm / 60, lon: airport.lon }); // nm due north of the airport
     const base = { etd: undefined, sealAuto: false, truckAuto: false, etdAuto: false, simulated: true };
     // lost: last observation 35 min before the demo started, at the distance matching the ETA then
@@ -281,14 +334,14 @@
     const lostLast = Object.assign(at((eta - (nm0 - 35) - 5) / 60 * lostGs), { gs: lostGs, alt: 35000 });
     const views = {
       live: () => {
-        const nm = nowMins(new Date()), distNm = Math.max(0, (eta - nm - 5) / 60 * 450);
+        const nm = nowMins(unitNow()), distNm = Math.max(0, (eta - nm - 5) / 60 * 450);
         return Object.assign({}, base, { level: 'live', ageMin: 1.5, eta, confidence: 'far', seenAt: Date.now() - 90e3,
           pos: Object.assign(at(distNm), { dist: distNm, gs: 450, alt: 33000 }) });
       },
       lost: () => {
         const ageMin = (Date.now() - lostSeenAt) / 60000;
         return Object.assign({}, base, { level: 'lost', ageMin, eta, seenAt: lostSeenAt, pos: lostLast,
-          dr: C.deadReckon(lostLast, airport, eta, nowMins(new Date()), ageMin, settings()) });
+          dr: C.deadReckon(lostLast, airport, eta, nowMins(unitNow()), ageMin, settings()) });
       },
       landed: () => Object.assign({}, base, { level: 'landed', ageMin: (Date.now() - t0) / 60000 + 10, eta: nm0 - 10, landedAt: nm0 - 10, landed: true, seenAt: t0 - 10 * 60e3 }),
       never: () => null,
@@ -303,10 +356,11 @@
     refreshNow() { clearTimeout(timer); tick(); },
     onUpdate(cb) { listeners.push(cb); },
     status: () => status,
-    forFlight, boxSlot, historyFor, setDemo,
+    forFlight, boxSlot, historyFor, setDemo, simulate, resetAll,
+    simulated: () => Object.keys(sims),
     settings: () => (data ? settings() : null),
     takeTightAlerts() { const q = tightQueue; tightQueue = []; return q; },
-    log: () => log.slice(),
+    log: () => simLog.concat(log),
     diagnostic: () => diag,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,84 +1,113 @@
-# ANGA
+# Ops On Time
 
 Live catering operations, on one screen.
 
-Tableau de bord d'opérations catering aérien : timeline du jour (ETA, Sealing & Loading, Truck Departure, ETD), vue par compagnie, slots Box Time, semaine, alertes. Site statique servi par GitHub Pages, sans serveur ni base de données.
+Tableau de bord d'opérations catering aérien : timeline du jour (ETA, Sealing & Loading, Truck Departure, ETD), vue par compagnie, slots Box Time, semaine, alertes, suivi des avions en direct. Site statique servi par GitHub Pages, données dans un Google Sheet, relais Google Apps Script. Aucun serveur, aucune base de données. Interface en anglais.
 
 ## Fichiers
 
 | Fichier | Rôle |
 | --- | --- |
 | `index.html` | Interface (HTML, CSS, JS). |
-| `config.js` | Configuration centrale : nom du produit, accroche, contact, URL, Sheet et gid des onglets, feature flags. |
-| `js/data-source.js` | Seul module qui sait d'où viennent les données (lecture, rafraîchissement, écriture plus tard). |
-| `data/local-data.example.json` | Exemple fictif du fichier de secours. |
-| `data/local-data.json` | Fichier de secours réel. **Non versionné** (voir `.gitignore`). |
-| `assets/`, `manifest.webmanifest` | Favicon, icônes, manifest d'application web. |
-| `tests/` | Tests du module de données (`node --test tests/*.test.mjs`, aucune dépendance). |
+| `config.js` | Configuration centrale : nom du produit, identifiant du Sheet, unité par défaut, gid des onglets connus, feature flags. Aucun secret. |
+| `js/rules.js` | Moteur de règles : fonctions pures, toutes les règles horaires lues dans l'onglet RULES. |
+| `js/data-source.js` | Seul module qui sait d'où viennent les données (lecture des onglets, cache, contrôle des données). |
+| `js/live-core.js`, `js/live.js` | Suivi des avions en direct (ADS-B) par le relais, estimations, simulation de démo. |
+| `apps-script/live-relay.gs` | Relais Google Apps Script : URL publique en lecture seule, résolution des horaires, historique. Notice : `apps-script/README.md`. |
+| `tools/check-unit.mjs` | Recalcule tout un onglet d'unité avec le moteur de règles et liste les écarts avec les heures saisies. |
+| `OpsOnTime_Timing_Rules.xlsx` | Règles, contrôle de l'onglet JNB, scénarios, questions ouvertes. |
+| `tests/` | Tests (`node --test tests/*.test.mjs`, aucune dépendance). |
 
-## Données : le Google Sheet
+## Le Google Sheet
 
-Le Sheet est la seule source de vérité, configuration comprise. Il est publié en CSV : **tout ce qu'il contient est lisible publiquement. N'y mettez jamais de secret** (mot de passe, hash, clé).
+Le Sheet est la seule source de vérité. **Tout ce qu'il contient est lisible par toute personne qui a le lien : jamais de mot de passe ni de clé dedans.** Le dashboard ne l'écrit jamais ; seul le relais (sous le compte du propriétaire) écrit les colonnes `AUTO_*`, `STATUS`, `History`, `ScheduleCache` et `Audit`.
 
-Onglets (ligne 1 = en-têtes) :
-
-| Onglet | Colonnes |
+| Onglet | Contenu |
 | --- | --- |
-| principal (premier onglet) | `SI, Airline, H/W, Flight, ETA, ETD, Sealing, Truck Dep, Days`, puis deux colonnes optionnelles : `FLIGHT_OUT` (J, numéro de départ s'il diffère de Flight) et `FLIGHT_IN` (K, numéro sous lequel l'avion **arrive**, souvent différent du numéro de départ, par exemple 749 à l'arrivée pour 748 au départ ; vide = même que Flight). `Flight` est le numéro du vol au départ. Le suivi de l'arrivée utilise `FLIGHT_IN`. Les lignes de données commencent par un numéro (SI). `Days` : chiffres 1 (lundi) à 7 (dimanche), `daily` ou `1234567`, `0` = ne vole pas. |
-| `Airlines` | `NAME, COLOR, IATA, ICAO` |
-| `Config` | `KEY, VALUE, DESCRIPTION` |
-| `BoxTime` | `SI, FLIGHT, DAY` (`D-1` ou `D`), `OVERRIDE` (HH:MM) |
-| `Audit` (phase 4) | `TIMESTAMP, USER, KEY, OLD, NEW` |
+| `README` | Mode d'emploi court. |
+| `JNB`, `CPT`, `DUR`, `AIRCHEFS_DEMO`... | Un onglet par unité, choisi par `?unit=<NOM>` dans l'adresse (défaut `DEFAULT_UNIT`, JNB). |
+| `DEMO_BLANK` | Modèle vide (seulement `FLIGHT`) à dupliquer pour un prospect. |
+| `RULES` | Toutes les règles et réglages (`KEY, VALUE, DESCRIPTION`). |
+| `RULES_<UNIT>` | Surcharge par unité : `AIRPORT_ICAO`, `AIRPORT_LAT`, `AIRPORT_LON`, `TIMEZONE`, `UNIT_LABEL`, et n'importe quelle clé de RULES. |
+| `Airlines` | `NAME, COLOR, IATA, ICAO, DEFAULT_PROFILE, NOTES`. |
+| `BoxTime` | Surcharges facultatives : `SI, FLIGHT, DAY, OVERRIDE, UNIT`. Sans ligne, la règle donne le slot. |
+| `Audit` | Chaque changement automatique : `DATE, SOURCE, KEY, OLD, NEW`. |
+| `History`, `ScheduleCache` | Écrits par le relais. |
+| `Feuille 2`, `Feuille 3` | Anciens onglets, plus lus : les statistiques par jour sont calculées dans l'application (Config > Flights per day). |
 
-Brancher un onglet :
+Colonnes d'un onglet d'unité (lues par leur nom, dans n'importe quel ordre, lignes de titre au-dessus autorisées) :
 
-1. Fichier > Partager > Publier sur le Web, publier le document entier (ou chaque onglet) au format CSV.
-2. Ouvrir l'onglet : le `gid` est le nombre après `#gid=` dans l'adresse.
-3. Le reporter dans `SHEET_GIDS` de `config.js`.
+- Obligatoire : `FLIGHT` (numéro de **départ**).
+- Facultatives, saisies à la main : `DAYS` (1 = lundi ... 7 = dimanche, `daily`, `0` = ne vole pas), `FLIGHT_IN` (numéro sous lequel l'avion **arrive**, c'est lui qui est suivi en ADS-B), `CALLSIGN` (dernier recours pour le suivi), `AIRLINE`, `H/W`, `ETA`, `ETD`, `Sealing`, `Truck Dep`, `RULE_PROFILE` (`TURN` ou `DAYSTOP`), `SEAL_TO_TRUCK` (minutes), `TRUCK_OFFSET` (`ETA-30`, `ETD-120`...), `ACTIVE` (`NO` = masqué, `CANCELLED` = annulé), `NOTES`, `FLIGHT_OUT`, `SI`.
+- Remplies par le relais : `AUTO_STA, AUTO_STD, AUTO_DAYS, AUTO_FLIGHT_IN, AUTO_CALLSIGN, AUTO_AIRLINE, AUTO_AIRCRAFT, STATUS` (`Resolved`, `Unresolved`, `Manual override`).
+- **Une valeur manuelle gagne toujours** sur la valeur automatique. Sealing et Truck vides sont calculés par la règle.
 
-Ordre de lecture pour chaque onglet : Sheet, puis dernière lecture réussie gardée dans le navigateur, puis `data/local-data.json` s'il existe, sinon vide. Sur GitHub Pages, le fichier local n'est pas publié (il n'est pas versionné) : en production, le secours est la dernière lecture réussie de chaque écran. Le détail de la source utilisée par onglet s'affiche au survol de l'indicateur de synchronisation.
+Lecture de chaque onglet : par son nom (gviz CSV, demande le partage « Tous les utilisateurs disposant du lien : Lecteur »), puis par le CSV publié (gid dans `config.js`), puis dernière lecture réussie sur l'appareil, puis `data/local-data.json` s'il existe. Les onglets sont au format Texte : sinon la lecture gviz efface les valeurs d'un type minoritaire dans une colonne.
+
+### Contrôle des données (Config > Data health)
+
+Jamais de plantage : chaque ligne est vérifiée et les problèmes sont listés par niveau (`error`, `warn`, `check`, `info`) : numéro mal formé, compagnie inconnue ou sans code, vol non trouvé, doublon, heure illisible, ligne vide, ligne inactive (`DAYS = 0`, `ACTIVE = NO`), écart d'au moins `HEALTH_GAP_MIN` minutes entre une heure saisie et la règle, surcharge Box Time différente de la règle.
+
+## Règles horaires (js/rules.js, valeurs dans RULES)
+
+- **Profil** : `RULE_PROFILE` s'il est rempli, sinon temps au sol prévu (STD - STA) : `DAYSTOP` à partir de `DAY_STOP_MIN_GROUND` (360 min), `TURN` en dessous. Pas d'ETA (arrivée la veille) : `DAYSTOP`.
+- **Truck** : `TRUCK_OFFSET` de la ligne, sinon `TRUCK_EXCEPTIONS` (ex. `ET848:ETD-120|UA187:ETD-150`), sinon TURN = ETA + `TURN_TRUCK_OFFSET_MIN` (-30), DAYSTOP = ETD + `DAYSTOP_TRUCK_OFFSET_MIN` (-180).
+- **Sealing** = Truck - `SEAL_TO_TRUCK` de la ligne, sinon `SEAL_EXCEPTIONS` (ex. `UU344:45`), sinon widebody `SEAL_TO_TRUCK_WIDE_MIN` (120) ou `SEAL_TO_TRUCK_MIN` (60). Widebody : par type d'avion (`WIDEBODY_TYPES`, dans `AUTO_AIRCRAFT`) s'il est connu, sinon par compagnie (`WIDEBODY_AIRLINES`).
+- **Box Time** : ETD après `BOX_THRESHOLD_ETD` (17:00) : slot D = Sealing + `BOX_D_OFFSET_MIN` (-240). Sinon slot D-1 = ETD + `BOX_D1_OFFSET_MIN` (120), plafonné à `BOX_D1_CAP` (15:00), ou `BOX_D1_LATE_SLOT` (19:00) si l'ETD est après 15:00 et au plus 17:00. L'onglet BoxTime ne sert qu'à surcharger.
+- **Retard** (ETA live ou simulée) :
+  - TURN : à partir de `RECALC_THRESHOLD_MIN` (5 min) d'écart, Truck, Sealing et Box Time D glissent avec l'ETA ; ETD estimée = max(STD, ETA + `MIN_ROTATION_MIN`). Les slots D-1 ne bougent pas et sont marqués « Check ».
+  - DAYSTOP : rien ne bouge ; alerte « Day stop margin » si l'ETA laisse moins de `DAYSTOP_MARGIN_MIN` minutes avant Truck.
+  - Heure recalculée à moins de `TIGHT_SLOT_MIN` minutes : alerte « Slot too tight ».
+- **Annulation** (`ACTIVE = CANCELLED` ou démo) : événements barrés « Cancelled », alertes coupées, Box Time « Hold production ».
+- Après minuit : une ETD plus tôt que l'ETA est le lendemain ; un Truck avant minuit reste sur le jour d'exploitation.
+
+Contrôle d'un onglet complet : télécharger les onglets en CSV puis `node tools/check-unit.mjs JNB.csv RULES.csv Airlines.csv BoxTime.csv JNB`.
 
 ## Suivi des vols en direct (flag `LIVE_ADSB`)
 
-- Source : suivi des avions en direct (ADS-B) fourni par adsb.lol, sous licence ODbL. L'attribution « Données : adsb.lol » est affichée quand le flag est actif.
-- **Avant le premier client payant, contacter l'auteur d'adsb.lol** : l'API est gratuite et sans clé aujourd'hui, mais il demande d'être prévenu de tout usage en production, et une clé sera exigée plus tard.
-- Le navigateur n'appelle jamais l'API : il passe par le relais Google Apps Script (`apps-script/`, notice de déploiement dans `apps-script/README.md`). Son URL va dans la clé `LIVE_RELAY_URL` de l'onglet Config.
-- Les heures affichées sont des **estimations** (« Live estimated ETA / ETD »), arrondies à 5 minutes, toujours à côté de l'heure prévue. Ce ne sont pas des heures officielles.
-- Règles :
-  - ETA live = distance jusqu'à l'aéroport / vitesse sol + `APPROACH_MARGIN_MIN`. Ignorée si vitesse < `MIN_GS_KT`, avion au sol ailleurs, ou position plus vieille que `MAX_POSITION_AGE_SEC`.
-  - Vols suivis : ETA prévue entre maintenant - `ADSB_WINDOW_BEFORE_MIN` et maintenant + `ADSB_WINDOW_AFTER_MIN`.
-  - ETD estimée = le plus tard entre l'ETD prévue et ETA live + `MIN_ROTATION_MIN`. Un day stop (au moins `DAY_STOP_MIN_GROUND` minutes au sol prévues) garde son ETD.
-  - Sealing et Truck gardent l'écart propre à chaque vol avec l'ETD. Box Time : seuls les slots D encore à venir suivent ce décalage (mention « Auto ») ; les slots D-1 ne bougent jamais, un écart d'au moins 30 min est signalé (« Check »).
-  - Un recalcul n'est appliqué que si l'estimation bouge d'au moins `RECALC_THRESHOLD_MIN`. Chaque recalcul est journalisé sur l'écran (menu ☰ > Live log). Une heure recalculée à moins de `TIGHT_SLOT_MIN` minutes déclenche l'alerte « Slot too tight ».
-  - Relais injoignable : retour aux horaires du Sheet, indicateur orange « Scheduled times ».
-- Trois niveaux pour une arrivée (fiche vol et libellés de la timeline) :
-  1. **Live** : position de moins de `POS_FRESH_MULT` x intervalle de mise à jour. Icône pleine, badge LIVE, âge de la position.
-  2. **Estimated** (vu puis perdu) : la dernière ETA live est gardée ; position estimée à l'estime sur le grand cercle entre la dernière position et l'aéroport, incertitude `UNCERTAINTY_FACTOR` x vitesse x temps écoulé, confiance haute, moyenne ou basse selon `POS_MEDIUM_MIN` et `POS_LOW_MIN`. Icône en pointillés, badge ESTIMATED, jamais « LIVE » ni « Landed » ; « Probably arrived, not confirmed » quand l'estimation atteint l'aéroport.
-  3. **Scheduled** (jamais vu) : heure prévue, ou heure prévue + écart médian des jours passés si l'historique a au moins `HISTORY_MIN_SAMPLES` jours (« ETA estimated (history, N days) »).
-- « Landed HH:MM (detected) » seulement si l'avion est vu au sol près de l'aéroport après avoir été vu en vol.
-- Carte schématique : position = 1 - min(distance restante, `MAP_MAX_KM`) / `MAP_MAX_KM`, distances en km.
-- Historique : voir `apps-script/README.md` (onglet History privé, calculé par le relais).
-- Mode démo (flag `DEMO_MODE`) : `?demo=live`, `?demo=lost`, `?demo=never` ou `?demo=landed` ouvre le vol fictif XX123 avec des observations simulées, signalées par un bandeau.
-- Option désactivée (`SHOW_SCHEDULE_ESTIMATE` = FALSE) : position grossière d'un vol jamais vu à partir des colonnes optionnelles `ORIGIN_ICAO` (L) et `DURATION_MIN` (M) et de l'onglet `Airports` (ICAO, LAT, LON), affichée en gris « Schedule-based estimate, not observed ».
-- Mode diagnostic (`?ff=LIVE_ADSB,DIAGNOSTIC`) : callsigns essayés et reçus pour chaque vol attendu, vols introuvables, callsigns vus autour de l'aéroport, écarts Box Time règle / OVERRIDE.
+- Source : ADS-B fourni par adsb.lol (ODbL), attribution « Données : adsb.lol ». **Avant le premier client payant, contacter l'auteur d'adsb.lol.**
+- Le navigateur n'appelle jamais l'API : il passe par le relais (`LIVE_RELAY_URL` dans RULES).
+- Vol suivi : `FLIGHT_IN` (ou `AUTO_FLIGHT_IN`), converti en callsign ICAO par l'onglet Airlines, puis `CALLSIGN`, puis le callsign appris par le relais (`AUTO_CALLSIGN`).
+- Niveaux : Live (position récente), Estimated (vu puis perdu, ou historique), Scheduled (jamais vu). Jamais de position inventée présentée comme observée.
+- Relais injoignable : retour aux horaires du Sheet, indicateur « Scheduled times ».
+
+## Affichage
+
+- Statuts : Live, Estimated, Scheduled, Delayed, Cancelled (légende en bas de la timeline). Heure nouvelle en premier, ancienne barrée, badge « Auto updated » ; les blocs glissent à leur nouvelle place.
+- Menu ☰ : vues Ops, Airlines, Production, Week, Config ; filtres ; Live log ; panneau latéral ; Demo.
+- Config : unité active, aéroport et fuseau, sources et dernière synchronisation, état ADS-B et horaires, vols chargés avec leur statut (blanc : Sheet, bleu : automatique, violet : règle), règles en lecture seule avec lien vers le Sheet, Data health, vols par jour, filtres, alertes, affichage.
+- Écran sans surveillance : passe seul au jour suivant à minuit et se recharge une fois par nuit (03:30) pour prendre les mises à jour.
+
+## Mode démo (flag `DEMO_MODE`)
+
+- Menu ☰ > **Demo** (ou `?demo=on`) : bandeau permanent « DEMO MODE ». Rien n'est écrit dans le Sheet, l'Audit ni le journal de l'appareil.
+- Dans la fiche d'un vol ou le **Demo panel** : Delay +15 / +30 / +60 / Custom, Early arrival, Cancel flight, Reset. Effet immédiat sur toutes les vues (blocs qui glissent, ancienne heure barrée, « Auto updated », ligne dans le Live log, alerte si Sealing ou Truck tombe dans la fenêtre d'alerte). Fonctionne sur n'importe quelle date.
+- **Auto demo** : boucle retard, annulation, retour au plan toutes les X minutes.
+- `?demo=live|lost|never|landed` : vol fictif XX123 avec observations simulées (niveaux d'estimation).
+
+### Préparer une démo pour un prospect
+
+1. Dans le Sheet, dupliquer `DEMO_BLANK`, le renommer (ex. `PROSPECT_X`), coller les numéros de vol au départ dans la colonne `FLIGHT`, créer `RULES_PROSPECT_X` (copie de `RULES_JNB` avec le code ICAO et les coordonnées de l'aéroport) et ajouter `PROSPECT_X` à `UNITS` dans RULES.
+2. Menu **Ops On Time > Resolve flights** : horaires, jours, vol arrivant et callsign se remplissent.
+3. Ouvrir `https://gus02322.github.io/JNB-Dashboard/?unit=PROSPECT_X&demo=on`.
+
+## Sécurité
+
+- Aucun secret dans le code, le navigateur ou le Sheet. La clé de l'API d'horaires est dans les propriétés du script Apps Script.
+- L'URL du relais est publique et ne fait que lire (pas d'écriture, pas d'appel à l'API d'horaires, appels plafonnés par minute).
+- Partage du Sheet : **« Tous les utilisateurs disposant du lien : Lecteur »**, jamais « Éditeur ». Le dashboard ne fait que lire ; le relais écrit avec le compte du propriétaire.
 
 ## Lancer en local
 
 ```sh
 python3 -m http.server 8000
-# puis ouvrir http://localhost:8000
+# puis ouvrir http://localhost:8000/?unit=JNB
 ```
-
-L'ouverture directe du fichier (`file://`) ne permet pas de lire le Sheet.
 
 ## Feature flags
 
-Définis dans `FLAGS` (`config.js`), tous désactivés en production tant qu'ils ne sont pas validés. Pour tester sur un seul écran : ajouter `?ff=NOM1,NOM2` à l'adresse (mémorisé sur cet appareil), `?ff=none` pour revenir à la normale.
+Définis dans `FLAGS` (`config.js`). Pour tester sur un seul écran : `?ff=NOM1,NOM2` (mémorisé sur cet appareil), `?ff=none` pour revenir à la normale.
 
 ## Déploiement
 
-GitHub Pages publie la branche `main`. Tout merge sur `main` part en production : une branche et une pull request par évolution, merge uniquement après validation.
-
-## Contact
-
-À compléter : `CONTACT_EMAIL` et `SITE_URL` dans `config.js` sont encore des placeholders.
+GitHub Pages publie la branche `main`. Tout merge sur `main` part en production.
