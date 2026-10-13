@@ -1245,11 +1245,11 @@ function makeTrackerBtns(flight,type){
 
 /* TIMELINE */
 // Blocks slide to their new place when a time changes (FLIP: first, last, invert, play).
-function flipCapture(el){const m={};if(el)el.querySelectorAll('[data-key]').forEach(b=>{m[b.dataset.key]={left:b.offsetLeft,top:b.offsetTop};});return m;}
+function flipCapture(el){const m={};if(el&&el.offsetParent!==null)el.querySelectorAll('[data-key]').forEach(b=>{m[b.dataset.key]={left:b.offsetLeft,top:b.offsetTop,t:b.dataset.t};});return m;}
 function flipPlay(el,before){
   if(!el||!before||document.hidden||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   el.querySelectorAll('[data-key]').forEach(b=>{const r0=before[b.dataset.key];if(!r0)return;const dx=r0.left-b.offsetLeft,dy=r0.top-b.offsetTop;
-    if(Math.abs(dx)<2&&Math.abs(dy)<2)return;b.style.transition='none';b.style.transform=`translate(${dx}px,${dy}px)`;if(Math.abs(dy)>=2)b.classList.add('flip-moved');
+    if(Math.abs(dx)<2&&Math.abs(dy)<2)return;b.style.transition='none';b.style.transform=`translate(${dx}px,${dy}px)`;if(r0.t!==b.dataset.t)b.classList.add('flip-moved');
     requestAnimationFrame(()=>requestAnimationFrame(()=>{b.style.transition='transform 0.9s cubic-bezier(.2,.8,.2,1)';b.style.transform='';}));
     setTimeout(()=>b.classList.remove('flip-moved'),2600);});
 }
@@ -1293,7 +1293,7 @@ function buildTimelineDesktop(inner,evs,nm){
     const y=mins*pxpm,color=getColor(ev.airline);
     const isPast=nm>=0&&mins<nm;
     const b=document.createElement('div');
-    b.className=`eblock ${ev.tc}${isPast?' past':''}${ev.cancelled?' is-cancelled':''}${ev.auto||ev.status==='delayed'?' is-moved':''}`;b.dataset.key=ev.key;
+    b.className=`eblock ${ev.tc}${isPast?' past':''}${ev.cancelled?' is-cancelled':''}${ev.auto||ev.status==='delayed'?' is-moved':''}`;b.dataset.key=ev.key;b.dataset.t=ev.time+(ev.cancelled?'x':'');
     b.style.cssText=`left:${LANE+col*(BW+GAP)}px;top:${y}px;width:${BW}px;height:${bh}px;border-left-color:${color};`;
     const trkBtns=makeTrackerBtns(ev.flight,ev.type);
     const alPart=ds.showAl?`<div class="eb-airline">${ev.airline}</div>`:'';
@@ -1316,7 +1316,7 @@ function buildTimelineMobile(inner,evs,nm){
     if(hour!==lastHour){lastHour=hour;const sep=document.createElement('div');sep.className='mob-hour-sep';sep.textContent=String(hour).padStart(2,'0')+':00';inner.appendChild(sep);}
     const color=getColor(ev.airline);
     const b=document.createElement('div');
-    b.className=`eblock ${ev.tc}${isPast?' past':''}${ev.cancelled?' is-cancelled':''}${ev.auto||ev.status==='delayed'?' is-moved':''}`;b.dataset.key=ev.key;
+    b.className=`eblock ${ev.tc}${isPast?' past':''}${ev.cancelled?' is-cancelled':''}${ev.auto||ev.status==='delayed'?' is-moved':''}`;b.dataset.key=ev.key;b.dataset.t=ev.time+(ev.cancelled?'x':'');
     b.style.borderLeftColor=color;
     const trkBtns=makeTrackerBtns(ev.flight,ev.type);
     b.innerHTML=`<div class="eb"><div class="eb-top-row"><span class="eb-time">${evTimeHtml(ev)}</span><span class="eb-type-badge">${evLabel(ev)}</span><span class="eb-flight" style="color:${color}">${ev.flight}</span></div><div class="eb-airline">${ev.airline}</div><div class="eb-acts">${trkBtns}</div></div>`;
@@ -1683,7 +1683,7 @@ function buildProductionView(){
     const isD=s.day==='D',accentC=isD?'#66aaff':'#ffaa44',borderC=getColor(s.airline);
     const isPast=isD&&nm>=0&&mins<nm;
     const b=document.createElement('div');
-    b.className=`eblock${isPast?' past':''}${s.hold?' is-cancelled':''}${s.auto?' is-moved':''}`;b.dataset.key='bx_'+s.flightId;
+    b.className=`eblock${isPast?' past':''}${s.hold?' is-cancelled':''}${s.auto?' is-moved':''}`;b.dataset.key='bx_'+s.flightId;b.dataset.t=s.time+(s.hold?'x':'');
     b.style.cssText=`left:${blockLeft}px;top:${yPx}px;width:${blockW}px;height:${bh}px;border-left:${mobile?4:3}px solid ${borderC};opacity:${!isD&&!s.check&&!s.hold?'0.75':'1'};`;
     const badge=`<span style="font-size:9px;font-weight:700;font-family:var(--font-mono);padding:1px 5px;border-radius:2px;background:${isD?'rgba(102,170,255,0.2)':'rgba(255,170,68,0.2)'};color:${accentC};border:1px solid ${accentC}44;letter-spacing:1px;">${s.day}</span>`;
     const alPart=ds.showAl&&s.airline?`<div class="eb-airline">${s.airline}</div>`:'';
@@ -2178,6 +2178,7 @@ function openDemoPanel(){
   const sel=document.getElementById('dp-flight'),cur=sel.value;
   sel.innerHTML=viewFlights().map(f=>`<option value="${esc(f.id)}">${esc(f.flight)} · ${esc(f.airline)} · ETA ${esc(f.eta||'-')} · ETD ${esc(f.etd||'-')} · ${f.plan?f.plan.profile:''}</option>`).join('');
   if(cur)sel.value=cur;
+  else if(isToday(viewDate)){const nm=nowMins(),up=viewFlights().find(f=>t2m(f.truck||f.etd)>nm);if(up)sel.value=up.id;}
   document.getElementById('demo-panel').classList.add('show');
 }
 function closeDemoPanel(){document.getElementById('demo-panel').classList.remove('show');}
