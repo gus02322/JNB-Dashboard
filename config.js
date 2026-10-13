@@ -1,5 +1,5 @@
 /*
- * ANGA central configuration.
+ * Ops On Time central configuration.
  * Every product string, URL and feature flag is read from here.
  * Never put a secret in this file: it is served publicly by GitHub Pages.
  */
@@ -7,22 +7,22 @@
   const SHEET_BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQKq3odF0k3pgL0sJYP7SZmFNkVVwSun02u79ipbE6qmecOxJinj6iZJxNEhHL0VbHxFYQSqSVQOlxA/pub';
 
   const CONFIG = {
-    PRODUCT_NAME: 'ANGA',
+    PRODUCT_NAME: 'Ops On Time',
     TAGLINE: 'Live catering operations, on one screen.',
     CONTACT_EMAIL: 'TODO@example.com', // TODO: real contact address
     SITE_URL: 'https://example.com',   // TODO: real public URL
 
-    // Main flights tab (published CSV, first tab of the document).
-    SHEET_CSV_URL: SHEET_BASE + '?output=csv',
-    // Published CSV of another tab: SHEET_BASE + '?gid=<gid>&single=true&output=csv'.
+    // The Sheet: one tab per unit (JNB, CPT...), chosen with ?unit=<TAB>. Read by tab name (gviz CSV,
+    // needs "Anyone with the link: Viewer"), then from the published CSV with the gid below.
+    SHEET_ID: '1y9gpbgaqLb1ktilolWX7XbwCyu47obmf0NH11m0PscU',
+    DEFAULT_UNIT: 'JNB',
+    // Published CSV of a tab: SHEET_BASE + '?gid=<gid>&single=true&output=csv'.
     SHEET_BASE_URL: SHEET_BASE,
-    // gid of each tab. null = tab not configured yet (the app falls back to cache or local file).
-    SHEET_GIDS: {
-      airlines: '1001', // "Airlines" tab
-      config: '1002',   // "Config" tab
-      boxTime: '1003',  // "BoxTime" tab
-      audit: '1004',    // "Audit" tab (phase 4)
-      airports: null,   // optional "Airports" tab, only for SHOW_SCHEDULE_ESTIMATE (off)
+    // gid of the known tabs, used when the read by name fails. A new tab works by name only.
+    SHEET_TAB_GIDS: {
+      JNB: '0', CPT: '2001', DUR: '2002', AIRCHEFS_DEMO: '2003', DEMO_BLANK: '2004',
+      Airlines: '1001', RULES: '1002', BoxTime: '1003',
+      RULES_JNB: '2101', RULES_CPT: '2102', RULES_DUR: '2103', RULES_AIRCHEFS_DEMO: '2104',
     },
     SHEET_REFRESH_MS: 5 * 60 * 1000,
 
@@ -37,11 +37,10 @@
     // Override on one screen with ?ff=NAME1,NAME2 (remembered on that device), ?ff=none to reset.
     FLAGS: {
       LIVE_ADSB: true,         // phase 2: live estimated ETA / ETD (validated on 5 Oct)
-      BOX_TIME_FORMULA: false, // phase 2: Box Time default from the timing rule
       DIAGNOSTIC: false,       // phase 2: callsign diagnostic panel
-      CONFIG_PANEL: false,     // phase 4: online configuration panel
-      NEW_LOOK: false,         // refreshed visual: lighter background, Inter font, panel closed by default
-      DEMO_MODE: true,         // ?demo=live|lost|never|landed opens the fictive flight XX123 with simulated observations
+      CONFIG_PANEL: true,      // full Config panel: unit, flights and status, rules, data health, sync
+      NEW_LOOK: true,          // refreshed visual: lighter background, Inter font, panel closed by default
+      DEMO_MODE: true,         // Demo menu entry (simulated delays, cancellations); ?demo=live|lost|never|landed fictive flight
     },
   };
 
