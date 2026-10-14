@@ -173,6 +173,22 @@
     return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
   }
 
+  // Theoretical position of an arriving flight never seen by live tracking: on the great circle from its
+  // origin, at the distance it still has to fly at a typical cruise speed to land at the scheduled ETA.
+  // Never an observation. state: 'enroute', 'notdeparted' (theoretical take-off still to come), 'arriving'.
+  function theoreticalPosition(origin, airport, etaM, nowM, p) {
+    if (!origin || !airport || etaM === null || etaM === undefined) return null;
+    const totalKm = haversineNm(origin.lat, origin.lon, airport.lat, airport.lon) * KM_PER_NM;
+    const speed = p.speedKmh || 850, margin = p.marginMin || 20;
+    const flightMin = totalKm / speed * 60 + margin, depM = etaM - flightMin;
+    const remainingKm = Math.max(0, (etaM - nowM - margin / 2) / 60 * speed);
+    if (nowM < depM) return { state: 'notdeparted', depM, totalKm, distKm: totalKm, fraction: 0 };
+    if (remainingKm <= 0) return { state: 'arriving', depM, totalKm, distKm: 0, fraction: 1 };
+    const distKm = Math.min(totalKm, remainingKm), f = 1 - distKm / totalKm;
+    const pos = gcInterpolate(origin.lat, origin.lon, airport.lat, airport.lon, f);
+    return { state: 'enroute', depM, totalKm, distKm, fraction: f, lat: pos.lat, lon: pos.lon };
+  }
+
   // Optional, off by default: rough position of a flight never seen, from the schedule only.
   function scheduleEstimate(origin, airport, etaM, nowM, durationMin) {
     if (!origin || !durationMin) return null;
@@ -215,6 +231,6 @@
   return {
     DAY, t2m, m2t, round5, schedule, boxSlotFormula, boxSettings,
     haversineNm, bearingDeg, callsignCandidates, KM_PER_NM, gcInterpolate, arrivalLevel, confidenceFromAge,
-    deadReckon, mapFraction, arrivalStatus, median, scheduleEstimate, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
+    deadReckon, mapFraction, arrivalStatus, median, scheduleEstimate, theoreticalPosition, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
   };
 });

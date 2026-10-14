@@ -158,7 +158,7 @@ function fictiveSchedule(url) {
   const dep = [], arr = [];
   const add = (list, t, number, extra = {}) => { if ((t < '12:00') === am) list.push(Object.assign({ number, callSign: number.replace('ZZ ', 'ZZC'), airline: { name: 'Demo One' }, aircraft: { model: 'Airbus A350-900', reg: 'ZS-' + number.slice(-3) }, status: 'Expected' }, extra(t))); };
   // ZZ100: daily turnaround, inbound ZZ99 (number - 1) at 08:00, departs 10:00
-  add(arr, '08:00', 'ZZ 99', t => ({ arrival: at(t) }));
+  add(arr, '08:00', 'ZZ 99', t => ({ arrival: at(t), departure: { airport: { icao: 'XORG' } } }));
   add(dep, '10:00', 'ZZ 100', t => ({ departure: at(t) }));
   // ZZ300: Mon Wed Fri, same aircraft (registration) arriving as ZZ250 at 06:30
   if ([1, 3, 5].includes(day)) {
@@ -183,6 +183,7 @@ test('schedules: a tab with only FLIGHT is filled (AUTO_*), STATUS set, every ch
   assert.deepEqual([t.ZZ0100.AUTO_STD, t.ZZ0100.AUTO_STA, t.ZZ0100.AUTO_FLIGHT_IN, t.ZZ0100.AUTO_DAYS, t.ZZ0100.STATUS], ['10:00', '08:00', 'ZZ99', '1234567', 'Resolved']);
   assert.equal(t.ZZ0100.AUTO_CALLSIGN, 'ZZC99');
   assert.equal(t.ZZ0100.AUTO_AIRCRAFT, 'Airbus A350-900');
+  assert.equal(t.ZZ0100.AUTO_ORIGIN, 'XORG');
   assert.deepEqual([t.ZZ300.AUTO_STA, t.ZZ300.AUTO_FLIGHT_IN, t.ZZ300.AUTO_DAYS], ['06:30', 'ZZ250', '135']); // same aircraft
   assert.deepEqual([t.ZZ500.AUTO_STA, t.ZZ500.AUTO_STD, t.ZZ500.AUTO_DAYS], ['23:45', '00:45', '1234567']); // operating day = arrival day
   assert.deepEqual([t.ZZ700.AUTO_STA, t.ZZ700.AUTO_STD], ['D-1 21:00', '14:00']); // day stop from the day before

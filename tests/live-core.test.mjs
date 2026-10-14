@@ -134,3 +134,17 @@ test('median ignores non numbers, schedule estimate only inside the flight', () 
   assert.ok(Math.abs(e.fraction - 0.75) < 1e-9);
   assert.equal(C.scheduleEstimate({ lat: 10, lon: 0 }, { lat: 0, lon: 0 }, 700, 300, 240), null);
 });
+
+test('theoretical position: great circle at cruise speed, never before the theoretical take-off', () => {
+  const origin = { lat: 0, lon: 10 }, airport = { lat: 0, lon: 0 }; // about 1 113 km
+  const p = { speedKmh: 850, marginMin: 20 };
+  const eta = 12 * 60;
+  const far = C.theoreticalPosition(origin, airport, eta, eta - 200, p);
+  assert.equal(far.state, 'notdeparted');
+  const mid = C.theoreticalPosition(origin, airport, eta, eta - 50, p);
+  assert.equal(mid.state, 'enroute');
+  assert.ok(Math.abs(mid.distKm - 40 / 60 * 850) < 1);
+  assert.ok(mid.lon > 0 && mid.lon < 10);
+  assert.equal(C.theoreticalPosition(origin, airport, eta, eta - 5, p).state, 'arriving');
+  assert.equal(C.theoreticalPosition(null, airport, eta, eta, p), null);
+});
