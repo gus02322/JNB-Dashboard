@@ -21,7 +21,7 @@
     // gid of the known tabs, used when the read by name fails. A new tab works by name only.
     SHEET_TAB_GIDS: {
       JNB: '0', CPT: '2001', DUR: '2002', AIRCHEFS_DEMO: '2003', DEMO_BLANK: '2004',
-      Airlines: '1001', RULES: '1002', BoxTime: '1003',
+      Airlines: '1001', RULES: '1002', BoxTime: '1003', Airports: '2200',
       RULES_JNB: '2101', RULES_CPT: '2102', RULES_DUR: '2103', RULES_AIRCHEFS_DEMO: '2104',
     },
     SHEET_REFRESH_MS: 5 * 60 * 1000,

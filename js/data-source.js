@@ -188,7 +188,7 @@
         airline: airlineName || n.prefix, mealType: (o.MEAL || '').toLowerCase(), flight: flightRaw,
         eta, etd, sealing: time(o.SEALING) || R.m2t(plan.seal), truck: time(o.TRUCK) || R.m2t(plan.truck),
         days, flightOut: o.FLIGHT_OUT || '', flightIn, callsigns: [...new Set(inCalls.concat(extra))], inGuess, outCallsigns: R.callsigns(o.FLIGHT_OUT || flightRaw, prefixes),
-        originIcao: (o.ORIGIN_ICAO || '').toUpperCase(), durationMin: o.DURATION_MIN ? parseInt(o.DURATION_MIN, 10) || null : null,
+        originIcao: (o.ORIGIN_ICAO || auto('ORIGIN') || '').toUpperCase(), durationMin: o.DURATION_MIN ? parseInt(o.DURATION_MIN, 10) || null : null,
         status, notes: o.NOTES || '', cancelled, aircraft: row.aircraft,
         src: { eta: time(o.ETA) ? 'manual' : eta ? 'auto' : '', etd: time(o.ETD) ? 'manual' : etd ? 'auto' : '', sealing: plan.sealSource, truck: plan.truckSource,
           days: o.DAYS ? 'manual' : auto('DAYS') ? 'auto' : '', flightIn: o.FLIGHT_IN ? 'manual' : auto('FLIGHT_IN') ? 'auto' : '' },
@@ -225,6 +225,12 @@
       say('Truck', c.truckGap, c.truckSheet, c.truckRule, c.truckText, beforeEta);
       say('Sealing', c.sealGap, c.sealSheet, c.sealRule, c.sealText);
       if (c.boxOverride !== null) say('Box Time override', c.boxGap, c.boxOverride, c.boxRule, c.boxDay + ' rule');
+    });
+    // origin airport needed for the theoretical position of a flight not seen yet
+    const known = new Set((ctx.airports || []).map(a => a.icao));
+    rows.forEach(f => {
+      if (!f.days.length || !f.eta) return;
+      if (f.originIcao && !known.has(f.originIcao)) health.push({ level: 'info', row: f.row, si: f.si || '', flight: f.flight, msg: 'Origin ' + f.originIcao + ' is not in the Airports tab: no theoretical position' });
     });
     // one IATA code on several Airlines rows
     const seen = {};
@@ -268,7 +274,7 @@
       settings: { name: 'RULES', valid: t => Object.keys(parseSettings(parseCSV(t))).length > 0 },
       unitRules: { name: 'RULES_' + unit, valid: t => parseCSV(t).some(r => r.map(headKey).includes('KEY')), optional: true },
       boxTime: { name: 'BoxTime', valid: t => parseCSV(t).some(r => r.map(headKey).includes('OVERRIDE')), optional: true },
-      airports: { name: 'Airports', valid: t => parseAirports(parseCSV(t)).length > 0, optional: true, onlyGid: true },
+      airports: { name: 'Airports', valid: t => parseAirports(parseCSV(t)).length > 0, optional: true },
     };
 
     function gvizUrl(name) {
@@ -340,7 +346,7 @@
       state.boxTime = parseBoxTime(parseCSV(by.boxTime.text));
       state.airports = parseAirports(parseCSV(by.airports.text));
       const raw = readUnitRows(parseCSV(by.flights.text, true));
-      const built = buildUnit(raw || [], { unit, defaultUnit: cleanUnit(cfg.DEFAULT_UNIT), airlines, settings, boxTime: state.boxTime });
+      const built = buildUnit(raw || [], { unit, defaultUnit: cleanUnit(cfg.DEFAULT_UNIT), airlines, settings, boxTime: state.boxTime, airports: state.airports });
       if (!raw && by.flights.text === '') built.health.unshift({ level: 'error', row: null, si: '', flight: '', msg: 'Tab "' + unit + '" could not be read (' + (by.flights.error || 'empty') + ')' });
       state.flightRows = built.rows;
       state.flights = built.flights;

@@ -48,10 +48,10 @@ var DEP_WATCH_AFTER_MIN = 240;      // until ETD + 240 min
 var TODAY_CACHE_SEC = 120;
 
 var SCHEDULE_SHEET = 'ScheduleCache';
-var SCHEDULE_HEAD = ['AIRPORT', 'DATE', 'DIR', 'NUMBER', 'TIME', 'CALLSIGN', 'AIRCRAFT', 'REG', 'AIRLINE', 'STATUS', 'FETCHED_AT'];
+var SCHEDULE_HEAD = ['AIRPORT', 'DATE', 'DIR', 'NUMBER', 'TIME', 'CALLSIGN', 'AIRCRAFT', 'REG', 'AIRLINE', 'STATUS', 'FETCHED_AT', 'ORIGIN'];
 var AUDIT_SHEET = 'Audit';
 var AUDIT_HEAD = ['DATE', 'SOURCE', 'KEY', 'OLD', 'NEW'];
-var AUTO_COLS = ['AUTO_STA', 'AUTO_STD', 'AUTO_DAYS', 'AUTO_FLIGHT_IN', 'AUTO_CALLSIGN', 'AUTO_AIRLINE', 'AUTO_AIRCRAFT', 'STATUS'];
+var AUTO_COLS = ['AUTO_STA', 'AUTO_STD', 'AUTO_DAYS', 'AUTO_FLIGHT_IN', 'AUTO_CALLSIGN', 'AUTO_AIRLINE', 'AUTO_AIRCRAFT', 'AUTO_ORIGIN', 'STATUS'];
 
 /* ---------------- web app: public, read only ---------------- */
 
@@ -494,6 +494,7 @@ function resolveRow(r, sched, days, dayStopMin) {
     var sta = mode(pairs.map(function (p) { return p.arr.time; }));
     var prevDay = pairs.filter(function (p) { return p.prevDay; }).length * 2 > pairs.length;
     out.AUTO_CALLSIGN = mode(pairs.map(function (p) { return p.arr.callsign; }).filter(String)) || '';
+    out.AUTO_ORIGIN = mode(pairs.map(function (p) { return p.arr.origin; }).filter(String)) || '';
     if (!prevDay) out.AUTO_STA = sta;
     else if (1440 + stdM - t2m(sta) < dayStopMin) {
       // Quick turn across midnight: the operating day is the arrival day, ETD on the next day.
@@ -544,7 +545,7 @@ function loadSchedule(ss, airport, dates) {
   rows.forEach(function (o) {
     if (o.AIRPORT !== airport || o.DIR === 'WINDOW' || /cancel/i.test(o.STATUS || '')) return;
     out.any = true;
-    var it = { date: o.DATE, time: o.TIME, number: o.NUMBER, callsign: o.CALLSIGN || '', aircraft: o.AIRCRAFT || '', reg: o.REG || '', airline: o.AIRLINE || '' };
+    var it = { date: o.DATE, time: o.TIME, number: o.NUMBER, callsign: o.CALLSIGN || '', aircraft: o.AIRCRAFT || '', reg: o.REG || '', airline: o.AIRLINE || '', origin: o.ORIGIN || '' };
     if (o.DIR === 'DEP') {
       (out.dep[o.NUMBER] = out.dep[o.NUMBER] || []).push(it);
       if (o.CALLSIGN) (out.depCs[o.CALLSIGN] = out.depCs[o.CALLSIGN] || []).push(it);
@@ -580,7 +581,9 @@ function adbFetch(airport, date, half) {
       if (!m || !n) return;
       items.push({ DATE: m[1], DIR: k[1], NUMBER: n.norm, TIME: m[2] + ':' + m[3], CALLSIGN: String(x.callSign || '').replace(/\s+/g, '').toUpperCase(),
         AIRCRAFT: String((x.aircraft && x.aircraft.model) || ''), REG: String((x.aircraft && x.aircraft.reg) || '').toUpperCase(),
-        AIRLINE: String((x.airline && x.airline.name) || ''), STATUS: String(x.status || '') });
+        AIRLINE: String((x.airline && x.airline.name) || ''), STATUS: String(x.status || ''),
+        // arrivals: airport the flight comes from (departure leg, or the movement's other airport)
+        ORIGIN: k[1] === 'ARR' ? String(((x.departure && x.departure.airport) || (x.movement && x.movement.airport) || {}).icao || '').toUpperCase() : '' });
     });
   });
   return { items: items };

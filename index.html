@@ -1176,14 +1176,18 @@ function flightStatus(f,L){
 // Incoming flight of a departure (the aircraft arrives under another number, e.g. 763 for 764).
 function inboundText(f,L,short){
   const i=L&&L.inbound,known=f.flightIn||'';
-  if(!i){return known&&liveOn()&&isToday(viewDate)&&!short?'Incoming flight '+esc(known):known?'◂ '+esc(known):'';}
+  if(!i){
+    if(short&&liveOn()&&isToday(viewDate)){const th=theoretical(f,AngaLiveCore.t2m(f.eta));if(th&&th.state==='enroute')return'◂ '+(known?esc(known)+' ':'')+'not seen · theor. '+Math.round(th.distKm).toLocaleString('en')+' km';}
+    return known&&liveOn()&&isToday(viewDate)&&!short?'Incoming flight '+esc(known):known?'◂ '+esc(known):'';}
   const n=esc(i.number||known||'inbound'),km=L.pos&&L.pos.dist!==undefined?Math.round(L.pos.dist*1.852).toLocaleString('en')+' km':'';
   const from=i.origin?' from '+esc(i.origin):'';
   if(short){
     if(i.state==='airborne')return'◂ '+n+' in flight'+(km?' · '+km:'');
     if(i.state==='landed')return'◂ '+n+' landed';
     if(i.state==='lost')return'◂ '+n+' out of coverage';
-    return'◂ '+(known?esc(known)+' ':'inbound ')+'not seen yet';
+    const th=theoretical(f,AngaLiveCore.t2m(f.eta));
+    const thTxt=th&&th.state==='enroute'?' · theor. '+Math.round(th.distKm).toLocaleString('en')+' km':th&&th.state==='notdeparted'?' · theor. dep. '+AngaLiveCore.m2t(th.depM):'';
+    return'◂ '+(known?esc(known)+' ':'inbound ')+'not seen'+thTxt;
   }
   if(i.state==='airborne')return'Incoming flight '+n+from+' · in flight'+(km?' · '+km+' from '+esc(AngaData.setting('AIRPORT_ICAO','')):'');
   if(i.state==='landed')return'Incoming flight '+n+from+' · landed';
@@ -1191,6 +1195,14 @@ function inboundText(f,L,short){
   return known?'Incoming flight '+esc(known)+' · not in live coverage yet':'Incoming flight not found yet (FLIGHT_IN empty: '+esc(f.flight)+' and the numbers next to it are searched)';
 }
 // Departure from the unit not seen airborne DEP_LATE_MIN minutes after the ETD: minutes late, else null.
+// Theoretical position of an arriving flight not seen by live tracking (origin from ORIGIN_ICAO or AUTO_ORIGIN).
+function theoretical(f,etaM){
+  if(!isToday(viewDate)||!f.originIcao||etaM===null||etaM===undefined)return null;
+  if(String(AngaData.setting('SHOW_SCHEDULE_ESTIMATE','TRUE')).toUpperCase()!=='TRUE')return null;
+  const o=AngaData.get().airports.find(a=>a.icao===f.originIcao),lat=AngaData.setting('AIRPORT_LAT',NaN),lon=AngaData.setting('AIRPORT_LON',NaN);
+  if(!o||!Number.isFinite(lat))return null;
+  return AngaLiveCore.theoreticalPosition(o,{lat,lon},etaM,nowMins(),{speedKmh:AngaData.setting('THEORETICAL_SPEED_KMH',850),marginMin:AngaData.setting('THEORETICAL_MARGIN_MIN',20)});
+}
 function depLate(f,L){
   if(!liveOn()||!isToday(viewDate)||!f.etd)return null;
   const sc=AngaLiveCore.schedule(f);if(sc.nextDayEtd)return null;
@@ -2026,7 +2038,7 @@ function renderFlightView(){
     :level==='live'?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
     :level==='lost'?'<span class="fv-pill est">Estimated</span>'
     :level==='landed'?'<span class="fv-pill live">Landed (detected)</span>'
-    :fallback?'<span class="fv-pill fallback">Scheduled times</span>':'<span class="fv-pill sched">Scheduled times</span>';
+    :fallback?'<span class="fv-pill fallback">Scheduled times</span>':theoretical(f,sc.eta)&&isToday(viewDate)&&sc.eta!==null&&nowMins()<sc.eta+30?'<span class="fv-pill est">Not seen yet · theoretical</span>':'<span class="fv-pill sched">Scheduled times</span>';
   const dir=sc.eta===null?'departure only':f.flightIn?'arrives as '+esc(f.flightIn)+', departs as '+esc(f.flight):'inbound';
   // schematic map: hub on the right; arrival placed by remaining distance (p = 1 - min(d, MAP_MAX_KM) / MAP_MAX_KM)
   const hub=AngaData.setting('AIRPORT_ICAO','')||'HUB';
@@ -2059,12 +2071,12 @@ function renderFlightView(){
   else if(isToday(viewDate)&&sc.etd!==null&&nowMins()>sc.etd+30){waiting=false;posTxt='Departure scheduled at '+m2t(sc.etd)+': not seen by live tracking yet (no coverage on this route, or the relay trigger has not run). Check the flight tracker link below.';}
   else if(isToday(viewDate)&&nowMins()>t.eta+30){waiting=false;svg=`<g transform="translate(${P2[0]},${P2[1]-22})" opacity="0.6"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#5f6878" stroke-width="1.4" stroke-dasharray="2 2"/></g>`;posTxt='Arrival time passed: no live confirmation';}
   else{
-    // Optional schedule based estimate (SHOW_SCHEDULE_ESTIMATE, off by default): grey, hollow, never shown as observed.
-    const ap=String(AngaData.setting('SHOW_SCHEDULE_ESTIMATE','FALSE')).toUpperCase()==='TRUE'&&f.originIcao&&f.durationMin?AngaData.get().airports.find(a=>a.icao===f.originIcao):null;
-    const lat=AngaData.setting('AIRPORT_LAT',NaN),lon=AngaData.setting('AIRPORT_LON',NaN);
-    const se=ap&&Number.isFinite(lat)&&isToday(viewDate)?C.scheduleEstimate(ap,{lat,lon},t.eta,nowMins(),f.durationMin):null;
-    if(se){waiting=false;const u=clampU(C.mapFraction(se.distKm,maxKm));svg=icon(u,'sched');posTxt=`Schedule-based estimate, not observed · about ${fmtKm(se.distKm)} from ${esc(hub)}`;}
-    else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',120))+' before the scheduled ETA';
+    // Theoretical position (SHOW_SCHEDULE_ESTIMATE): grey, hollow icon, always labelled, never shown as observed.
+    const th=theoretical(f,t.eta);
+    if(th&&th.state==='enroute'){waiting=false;const u=clampU(C.mapFraction(th.distKm,maxKm));svg=icon(u,'sched');posTxt=`Not seen yet · theoretical position based on the scheduled ETA and a typical cruise speed, not observed · about ${fmtKm(th.distKm)} from ${esc(hub)}`;}
+    else if(th&&th.state==='notdeparted'){posTxt=`Not seen yet · theoretical take-off from ${esc(f.originIcao)} about ${m2t(th.depM)} (scheduled ETA minus the flight time), not observed`;}
+    else if(th&&th.state==='arriving'){waiting=false;svg=icon(0.97,'sched');posTxt=`Not seen yet · theoretically on final approach (scheduled ETA), not observed`;}
+    else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))+' before the scheduled ETA';
   }
   if(waiting)svg=`<g transform="translate(${P0[0]+14},${P0[1]-6}) rotate(-25)" opacity="0.45"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#8a93a6" stroke-width="1.4"/></g>`;
   const map=`<div class="fv-map"><svg viewBox="0 0 600 190" preserveAspectRatio="none">
