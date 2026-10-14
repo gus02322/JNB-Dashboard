@@ -10,7 +10,7 @@
   const STATE_KEY = 'anga_live_state';
   const LOG_KEY = 'anga_live_log';
   const LOG_MAX = 300;
-  const POINT_RADIUS_NM = 40;    // point query around the airport: landing and departure detection
+  const POINT_RADIUS_NM = 250;   // point query around the airport (one request): approach, landing, take-off
   const GROUND_NM = 5;           // on ground within this distance = at the airport
   const FINAL_NM = 30;           // confidence label "final"
   const APPROACH_NM = 150;       // confidence label "approach", beyond: "far"
@@ -37,7 +37,8 @@
       relay: String(g('LIVE_RELAY_URL', '')).trim(),
       lat: g('AIRPORT_LAT', NaN), lon: g('AIRPORT_LON', NaN), airportIcao: String(g('AIRPORT_ICAO', '')).toUpperCase(),
       refreshSec: Math.max(30, g('ADSB_REFRESH_SEC', 60)),
-      before: g('ADSB_WINDOW_BEFORE_MIN', 60), after: g('ADSB_WINDOW_AFTER_MIN', 240),
+      before: g('ADSB_WINDOW_BEFORE_MIN', 60), after: Math.max(g('ADSB_WINDOW_AFTER_MIN', 600), 60),
+      depLateMin: g('DEP_LATE_MIN', 15),
       approachMarginMin: g('APPROACH_MARGIN_MIN', 5), minGsKt: g('MIN_GS_KT', 150), maxPosAgeSec: g('MAX_POSITION_AGE_SEC', 120),
       minRotationMin: g('MIN_ROTATION_MIN', 60), dayStopMinGround: g('DAY_STOP_MIN_GROUND', 360),
       threshold: g('RECALC_THRESHOLD_MIN', 5), tight: g('TIGHT_SLOT_MIN', 30),
@@ -95,18 +96,29 @@
     });
     const csMap = {};
     // The arriving aircraft flies under FLIGHT_IN when set; Flight is the departing flight number.
-    // Candidates: ICAO conversion of FLIGHT_IN, then CALLSIGN and the callsign learned by the relay.
-    inbound.forEach(f => { csMap[f.id] = (f.callsigns || C.callsignCandidates(f.flightIn || f.flight, prefixes)).concat((f.inGuess || []).filter(c => !(f.callsigns || []).includes(c))); });
+    // Candidates: the callsign already found today, else FLIGHT_IN (ICAO), CALLSIGN, the callsign
+    // learned by the relay, then number - 1 and + 1 when FLIGHT_IN is unknown.
+    inbound.forEach(f => {
+      const st = fs(f.id), sure = f.callsigns || C.callsignCandidates(f.flightIn || f.flight, prefixes);
+      csMap[f.id] = st.inCallsign ? [st.inCallsign] : sure.concat((f.inGuess || []).filter(c => !sure.includes(c)));
+    });
     // Departing aircraft (Flight, or FLIGHT_OUT when set): watched from ETD - 60 min to ETD + 240 min.
     const outMap = {};
     flights.forEach(f => {
       const s = C.schedule(f);
       if (s.etd !== null && nm >= s.etd - DEP_WATCH_BEFORE && nm <= s.etd + DEP_WATCH_AFTER) outMap[f.id] = f.outCallsigns || C.callsignCandidates(f.flightOut || f.flight, prefixes);
     });
-    // Sure callsigns first, guesses (number - 1 / + 1) last: the relay answers at most 30 per call.
-    const guesses = new Set(inbound.flatMap(f => f.inGuess || []));
-    const all = [...new Set(Object.values(csMap).flat().concat(Object.values(outMap).flat()))];
-    const cs = all.filter(c => !guesses.has(c)).concat(all.filter(c => guesses.has(c))).slice(0, 30);
+    // Priority (the relay answers at most 30 callsigns per call): the flight open on screen, then the
+    // closest scheduled times. Each flight brings its sure callsigns before its guesses.
+    const prio = [];
+    if (focusId && csMap[focusId]) prio.push(csMap[focusId]);
+    if (focusId && outMap[focusId]) prio.push(outMap[focusId]);
+    const byId = Object.fromEntries(flights.map(f => [f.id, f]));
+    const near = [];
+    Object.keys(csMap).forEach(id => near.push([Math.abs(C.t2m(byId[id].eta) - nm), csMap[id]]));
+    Object.keys(outMap).forEach(id => near.push([Math.abs(C.t2m(byId[id].etd) - nm), outMap[id]]));
+    near.sort((a, b) => a[0] - b[0]).forEach(x => prio.push(x[1]));
+    const cs = [...new Set(prio.flat())].slice(0, 30);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
     const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
@@ -117,8 +129,12 @@
       const r = await fetch(p.relay + (p.relay.includes('?') ? '&' : '?') + qs.toString());
       if (!r.ok) throw new Error('HTTP ' + r.status);
       payload = await r.json();
+      // Some callsigns refused by the tracking API (rate limit): the others are still used.
+      // Only an answer with nothing usable at all counts as a failure.
       const upstream = (payload.errors || []).filter(e => e.status === 429 || (e.status >= 500));
-      if (upstream.length) throw new Error('tracking API ' + upstream.map(e => e.status).join(','));
+      const answered = Object.keys(payload.cs || {}).length + (payload.point ? 1 : 0);
+      if (upstream.length && !answered) throw new Error('tracking API ' + [...new Set(upstream.map(e => e.status))].join(','));
+      payload.partial = upstream.length ? upstream.length + ' lookups refused by the tracking API, retried next update' : null;
     } catch (e) {
       failures++;
       status = { state: 'fallback', at: status.at, error: String(e.message || e) };
@@ -128,7 +144,8 @@
     failures = 0;
     lastPayload = Object.assign({}, payload, { routes: Object.assign({}, lastPayload && lastPayload.routes, payload.routes) });
     process(payload, p, now, nm, flights, inbound, csMap, outMap);
-    status = { state: 'ok', at: Date.now(), error: null };
+    status = { state: 'ok', at: Date.now(), error: payload.partial || null };
+    if (state.since === undefined) state.since = nm; // live tracking watching since (minutes of the day)
     saveJSON(STATE_KEY, state);
     notify();
     return schedule(p.refreshSec);
@@ -154,14 +171,18 @@
       const score = o => (o.route === 'mismatch' ? 0 : !o.est.usable ? 1 : o.est.landed ? (st.airborneSeen && o.cs === st.callsign ? 4 : 2) : 3) + (o.cs === st.callsign ? 0.5 : 0);
       options.sort((a, b) => score(b) - score(a) || (a.ac.seen_pos ?? 999) - (b.ac.seen_pos ?? 999));
       const best = options[0];
-      if (!best) { row.reason = row.reason || 'not found'; rows.push(row); return; }
+      if (!best) { row.reason = row.reason || 'not found'; st.inState = st.inState === 'airborne' ? 'lost' : st.inState || 'notseen'; rows.push(row); return; }
       const ac = best.ac, callsign = best.cs, route = best.route, est = best.est;
       row.found = [...new Set(options.map(o => o.cs))];
       row.route = route;
       if (route === 'mismatch') { row.reason = 'route does not match the airport, ignored'; rows.push(row); return; }
       row.dist = est.dist !== undefined ? Math.round(est.dist) : null;
-      if (!est.usable) { row.reason = est.reason; rows.push(row); return; }
+      if (!est.usable) { row.reason = est.reason; if (!st.inCallsign) st.inState = 'notseen'; rows.push(row); return; }
       st.callsign = callsign;
+      // The incoming flight is identified (seen flying, or landed after being seen flying): kept for the day.
+      if (!est.landed || st.airborneSeen) { st.inCallsign = callsign; st.inState = est.landed ? 'landed' : 'airborne'; }
+      const ri = routes[callsign] || {}, codes = String(ri._airport_codes_iata || ri.airport_codes || '');
+      if (/^[A-Z]{3}-[A-Z]{3}/.test(codes)) st.inOrigin = codes.slice(0, 3);
       // Landed only after being seen in flight: a parked aircraft with the same callsign is not a landing.
       if (est.landed && !st.airborneSeen) { row.reason = 'on the ground at the airport, never seen in flight: not counted as landed'; rows.push(row); return; }
       if (!est.landed) st.airborneSeen = true;
@@ -269,6 +290,7 @@
   }
 
   let tightQueue = [];
+  let focusId = null, lastFocusAt = 0;
 
   // Box Time of one flight: { day, m, base, auto, check, hold, source }.
   // D slots follow the Sealing shift unless already past. D-1 slots never move: they are marked Check.
@@ -294,7 +316,12 @@
     if (demo && f.id === demo.id) return demo.view();
     if (status.state !== 'ok' || !state) return null;
     const st = state.flights[f.id];
-    if (!st || st.eta === undefined) return st && st.departedAt !== undefined ? { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out } : null;
+    if (!st || st.eta === undefined) {
+      if (!st) return null;
+      const v = { inbound: inboundView(f, st), depGround: st.depState === 'ground' };
+      if (st.departedAt !== undefined) Object.assign(v, { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out });
+      return v.inbound || v.departedAt !== undefined || v.depGround ? v : null;
+    }
     const plan = f.plan || {}, a = st.applied || {}, p = settings();
     const level = C.arrivalLevel(st, Date.now(), p), ageMin = st.seenAt ? (Date.now() - st.seenAt) / 60000 : null;
     let dr = null;
@@ -307,7 +334,21 @@
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
       sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
       boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? st.eta - plan.eta : null,
+      inbound: inboundView(f, st), depGround: st.depState === 'ground',
     };
+  }
+
+  // Incoming flight of a departure: number (IATA when the airline is known), state and origin.
+  // state: airborne, landed, lost (seen then out of coverage), notseen (searched, not found yet).
+  function inboundView(f, st) {
+    if (!st || !st.inState) return null;
+    const cs = st.inCallsign || '';
+    let number = '';
+    if (cs) {
+      const al = (data.get().airlines || []).find(a => a.icao && cs.startsWith(a.icao) && /^\d/.test(cs.slice(a.icao.length)));
+      number = al && al.iata ? al.iata + cs.slice(al.icao.length) : cs;
+    }
+    return { callsign: cs, number, state: st.inState, origin: st.inOrigin || '', guessed: !f.flightIn && !!cs && !(f.callsigns || []).includes(cs) };
   }
 
   /* ---------- demo simulation: delays, early arrivals, cancellations. Never written anywhere. ---------- */
@@ -387,8 +428,15 @@
   root.AngaLive = {
     start(d, c) { data = d; cfg = c; status = { state: 'starting', at: null, error: null }; tick(); },
     refreshNow() { clearTimeout(timer); tick(); },
+    // A flight opened on screen is looked up first, right away (at most once a minute).
+    focus(f) {
+      focusId = f ? f.id : null;
+      if (f && status.state !== 'off' && data && Date.now() - lastFocusAt > 60000) { lastFocusAt = Date.now(); clearTimeout(timer); tick(); }
+    },
     onUpdate(cb) { listeners.push(cb); },
     status: () => status,
+    // Minutes of the day since which live tracking has answered today (null: not yet).
+    watchingSince: () => (state && state.day === todayKey(unitNow()) && state.since !== undefined ? state.since : null),
     forFlight, boxSlot, historyFor, setDemo, simulate, resetAll,
     simulated: () => Object.keys(sims),
     settings: () => (data ? settings() : null),

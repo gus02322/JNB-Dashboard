@@ -32,6 +32,7 @@
     ['BOX_D1_OFFSET_MIN', '120', 'Slot D-1 = ETD + this offset, minutes'],
     ['BOX_D1_CAP', '15:00', 'Latest D-1 slot from the ETD rule'],
     ['BOX_D1_LATE_SLOT', '19:00', 'D-1 slot when ETD is after BOX_D1_CAP and not after BOX_THRESHOLD_ETD'],
+    ['DEP_LATE_MIN', '15', 'Departure not seen airborne this many minutes after the ETD: shown Not airborne'],
     ['HEALTH_GAP_MIN', '5', 'Data health: flag a Sheet time that differs from the rule by at least this many minutes'],
   ];
   const DEFAULTS = Object.fromEntries(RULE_DEFS.map(r => [r[0], r[1]]));

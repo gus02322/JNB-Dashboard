@@ -68,6 +68,9 @@ Contrôle d'un onglet complet : télécharger les onglets en CSV puis `node tool
 - Source : ADS-B fourni par adsb.lol (ODbL), attribution « Données : adsb.lol ». **Avant le premier client payant, contacter l'auteur d'adsb.lol.**
 - Le navigateur n'appelle jamais l'API : il passe par le relais (`LIVE_RELAY_URL` dans RULES).
 - Vol suivi : `FLIGHT_IN` (ou `AUTO_FLIGHT_IN`), converti en callsign ICAO par l'onglet Airlines, puis `CALLSIGN`, puis le callsign appris par le relais (`AUTO_CALLSIGN`).
+- **Vol arrivant (ETA)** : chaque ETA affiche le vol qui arrive, par exemple « ◂ EK763 in flight · 640 km » pour EK764, et la fiche vol affiche « Incoming flight EK763 from DXB · in flight ». `FLIGHT_IN` vide : le numéro de départ, puis moins 1 et plus 1 sont cherchés ; seul l'avion qui vole vers l'aéroport est retenu (route vérifiée), puis gardé pour la journée. Les vols arrivants sont suivis à partir de `ADSB_WINDOW_AFTER_MIN` (600 min) avant l'ETA ; la fiche ouverte est cherchée en priorité.
+- **Départ (ETD)** : si l'avion n'est pas vu en l'air `DEP_LATE_MIN` (15) minutes après l'ETD, le bloc devient orange « Not airborne +Xm ». Affiché seulement si le suivi tournait déjà à l'heure de l'ETD (sinon un décollage a pu être manqué). « Departed » dès que le décollage est vu, ou transmis par le relais.
+- Une recherche refusée par l'API (limite de débit) ne fait plus tomber tout le suivi : les autres réponses sont utilisées, la recherche refusée est refaite à la mise à jour suivante.
 - Niveaux : Live (position récente), Estimated (vu puis perdu, ou historique), Scheduled (jamais vu). Jamais de position inventée présentée comme observée.
 - Relais injoignable : retour aux horaires du Sheet, indicateur « Scheduled times ».
 
