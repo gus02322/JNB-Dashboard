@@ -46,7 +46,8 @@ function makeEnv(opts = {}) {
       const iso = new RealDate(d.getTime()).toISOString();
       const day = new RealDate(d.getTime()).getUTCDay();
       return { 'yyyy-MM-dd': iso.slice(0, 10), H: String(parseInt(iso.slice(11, 13), 10)), m: String(parseInt(iso.slice(14, 16), 10)),
-        u: String(day === 0 ? 7 : day), 'yyyy-MM-dd HH:mm': iso.slice(0, 10) + ' ' + iso.slice(11, 16), 'yyyy-MM': iso.slice(0, 7) }[f];
+        u: String(day === 0 ? 7 : day), 'yyyy-MM-dd HH:mm': iso.slice(0, 10) + ' ' + iso.slice(11, 16), 'yyyy-MM': iso.slice(0, 7),
+        d: String(parseInt(iso.slice(8, 10), 10)), 'HH:mm': iso.slice(11, 16), "yyyy-MM-dd'T'HH:mm": iso.slice(0, 16) }[f];
     } },
     UrlFetchApp: {
       fetchAll: reqs => reqs.map(r => { const cs = r.url.split('/').pop(); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ac: api[cs] || [] }) }; }),
@@ -177,7 +178,7 @@ function fictiveSchedule(url) {
 test('schedules: a tab with only FLIGHT is filled (AUTO_*), STATUS set, every change audited', () => {
   const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
   e.at('2026-10-06T08:00:00Z'); e.adb(fictiveSchedule);
-  const msg = e.ctx.resolveFlights();
+  const msg = e.ctx.runResolve('NEWU', 'menu', 'all'); // "Resolve this tab" on a saved tab
   assert.match(msg, /NEWU: 4 resolved, 1 unresolved/);
   const t = Object.fromEntries(e.table('NEWU').map(r => [r.FLIGHT, r]));
   assert.deepEqual([t.ZZ0100.AUTO_STD, t.ZZ0100.AUTO_STA, t.ZZ0100.AUTO_FLIGHT_IN, t.ZZ0100.AUTO_DAYS, t.ZZ0100.STATUS], ['10:00', '08:00', 'ZZ99', '1234567', 'Resolved']);
@@ -191,6 +192,7 @@ test('schedules: a tab with only FLIGHT is filled (AUTO_*), STATUS set, every ch
   assert.ok(e.audit().length >= 20);
   assert.ok(e.audit().every(r => /^schedules \(menu\)$/.test(r[1])));
   // manual times win: the DEMO tab rows are Manual override
+  e.ctx.resolveFlights();
   assert.ok(e.table('DEMO').every(r => r.STATUS === 'Manual override'));
 });
 
@@ -198,10 +200,22 @@ test('schedules: cached per airport and per 12 h window, one request each, never
   const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
   e.at('2026-10-06T08:00:00Z'); e.adb(fictiveSchedule);
   e.ctx.resolveFlights();
-  assert.equal(e.adbCalls.length, 2 * 2 * 8); // 2 airports, 2 windows, yesterday + 7 days
+  assert.equal(e.adbCalls.length, 2 * 8); // active unit only: 2 windows, yesterday + 7 days
+  assert.ok(e.table('NEWU').every(r => !r.STATUS)); // saved tab: never resolved, no request
   e.ctx.resolveFlights();
-  assert.equal(e.adbCalls.length, 32);
-  assert.equal(e.props['ADB_CALLS_2026-10'], '32');
+  assert.equal(e.adbCalls.length, 16);
+  assert.equal(e.props['ADB_CALLS_2026-10'], '16');
+});
+
+test('schedules: the nightly run calls nothing when no row is new, everything on the 1st', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
+  e.at('2026-10-06T08:00:00Z'); e.adb(fictiveSchedule);
+  e.ctx.resolveFlights();
+  const n = e.adbCalls.length;
+  e.at('2026-10-07T00:05:00Z'); e.ctx.resolveDaily();
+  assert.equal(e.adbCalls.length, n); // every row already has a STATUS
+  e.at('2026-11-01T00:05:00Z'); e.ctx.resolveDaily();
+  assert.ok(e.adbCalls.length > n); // monthly full resolution
 });
 
 test('schedules: no key or quota reached, nothing is called and rows stay unresolved', () => {
@@ -262,4 +276,32 @@ test('inbound under number - 1 when FLIGHT_IN is empty; the outbound number flyi
   assert.equal(e.table('DEMO').find(x => x.FLIGHT === 'YY456').AUTO_CALLSIGN, 'YYB455');
   const out = JSON.parse(e.ctx.doGet({ parameter: { u: 'DEMO' } }));
   assert.equal(out.today.arr['YY456|23:50'], '23:58');
+});
+
+test('airline times: board read only for the active unit, when a flight is close, within the budget', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
+  const loc = t => ({ local: '2026-10-06 ' + t + '+00:00' });
+  e.adb(() => ({ code: 200, body: {
+    arrivals: [{ number: 'ZZ 789', status: 'EnRoute', arrival: { scheduledTime: loc('10:00'), revisedTime: loc('10:25') } },
+      { number: 'QQ 1', status: 'Expected', arrival: { scheduledTime: loc('10:10') } }], // not in the unit tab
+    departures: [{ number: 'ZZ 790', status: 'Delayed', departure: { scheduledTime: loc('12:00'), revisedTime: loc('12:40') } }],
+  } }));
+  e.at('2026-10-06T04:00:00Z');
+  assert.equal(e.ctx.refreshLive(), 'skipped'); // nothing within 3 h
+  assert.equal(e.adbCalls.length, 0);
+  e.at('2026-10-06T08:30:00Z');
+  assert.equal(e.ctx.refreshLive(), '2 flights updated');
+  assert.equal(e.adbCalls.length, 1);
+  assert.match(e.adbCalls[0], /\/XXXX\/2026-10-06T07:30\/2026-10-06T19:29/);
+  e.at('2026-10-06T08:50:00Z');
+  assert.equal(e.ctx.refreshLive(), 'skipped'); // too soon after the last read
+  const out = JSON.parse(e.ctx.doGet({ parameter: { u: 'DEMO' } }));
+  assert.deepEqual(out.today.est['ARR|ZZ789'][0], { s: '10:00', e: '10:25', k: 'revised', a: '', st: 'EnRoute', at: '08:30' });
+  assert.equal(out.today.est['DEP|ZZ790'][0].e, '12:40');
+  assert.equal(out.today.est['ARR|QQ1'], undefined);
+  // budget spent: no call at all
+  e.props['ADB_CALLS_2026-10'] = '180';
+  e.at('2026-10-06T11:00:00Z');
+  assert.equal(e.ctx.refreshLive(), 'skipped');
+  assert.equal(e.adbCalls.length, 1);
 });
