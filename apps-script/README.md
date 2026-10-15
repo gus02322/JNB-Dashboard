@@ -1,9 +1,12 @@
 # Relais Ops On Time (Google Apps Script)
 
-Un seul script, gratuit, attaché au Sheet. Il fait trois choses :
+Un seul script, gratuit, attaché au Sheet. Il ne travaille que pour **l'usine active** : `ACTIVE_UNIT` dans RULES, sinon `DEFAULT_UNIT`. Les autres onglets d'unité (par exemple la sauvegarde de JNB pendant une démo à Entebbe) ne coûtent aucune requête. Changer d'usine : créer l'onglet (par exemple `EBB` et `RULES_EBB` avec `AIRPORT_ICAO`, `AIRPORT_LAT`, `AIRPORT_LON`, `TIMEZONE`), puis mettre `DEFAULT_UNIT` = `EBB` dans RULES.
+
+Il fait ces choses :
 
 1. **URL publique en lecture seule** (`doGet`) : le navigateur ne peut pas appeler l'API de suivi des vols (CORS). Le relais l'appelle depuis les serveurs de Google, garde chaque réponse 55 secondes en cache (tous les écrans partagent les mêmes appels) et renvoie aussi l'écart médian des jours passés. Cette URL n'écrit jamais dans le Sheet et n'appelle jamais l'API d'horaires. Il n'y a pas de `doPost`. Les appels vers l'extérieur sont plafonnés à 150 par minute pour protéger le quota gratuit.
-2. **Horaires automatiques** (menu du Sheet et déclencheur de nuit) : remplit les colonnes `AUTO_*` de chaque onglet d'unité à partir de l'API AeroDataBox.
+2. **Horaires automatiques** (menu du Sheet et déclencheur de nuit) : remplit les colonnes `AUTO_*` de l'onglet de l'usine active à partir de l'API AeroDataBox. La nuit, seules les lignes nouvelles (sans `STATUS`) sont lues, et rien n'est appelé s'il n'y en a pas ; toutes les lignes le 1er du mois (programmes saisonniers).
+5. **Heures annoncées par les compagnies** (déclencheur toutes les heures, menu **Refresh airline times now**) : quand une ETA ou une ETD de l'usine active est à moins de 3 h, le relais lit le tableau des vols de l'aéroport (une requête couvre les 12 h suivantes) et garde l'heure révisée de chaque vol de l'onglet dans l'onglet `LiveStatus`. Le dashboard l'affiche « Airline ETA / Airline ETD » (pas observé) tant que l'ADS-B n'a pas vu l'avion, et recalcule le plan avec. Atterrissage ou décollage annoncé par l'aéroport : utilisé si l'ADS-B l'a manqué. Budget : les appels restants du mois (moins une réserve de 20 pour la résolution mensuelle) sont répartis sur les jours restants, jamais deux lectures à moins d'1 h.
 3. **Historique et décollages** (déclencheur toutes les 15 min, même si aucun écran n'est ouvert) : enregistre l'heure réelle d'atterrissage (onglet `History`) et de décollage (onglet `Departures`), apprend le callsign réellement vu (`AUTO_CALLSIGN`). Le relais renvoie aux écrans les atterrissages et décollages du jour : un écran ouvert après que l'avion a quitté la couverture ADS-B (au-dessus de l'océan par exemple) sait quand même qu'il a décollé.
 4. **Vol arrivant inconnu** (`FLIGHT_IN` vide) : le numéro de départ, puis le numéro moins 1 et plus 1 sont cherchés ; seul l'avion qui vole vers l'aéroport est retenu, et son callsign est appris.
 
@@ -18,7 +21,7 @@ Le menu « Ops On Time » n'existe que si le script est **attaché au Sheet**. L
 3. Effacer le contenu de `Code.gs`, coller **tout** le contenu de `live-relay.gs` (sans l'entourer d'une fonction), enregistrer.
 4. **Paramètres du projet** (roue dentée à gauche) :
    - **Fuseau horaire** : `(GMT+02:00) Johannesburg` (le même que `TIMEZONE` dans RULES).
-   - **Propriétés du script > Ajouter une propriété** : `AERODATABOX_KEY` = votre clé (voir plus bas). Facultatif : `ADB_MAX_CALLS_MONTH` (300 par défaut).
+   - **Propriétés du script > Ajouter une propriété** : `AERODATABOX_KEY` = votre clé (voir plus bas). Facultatif : `ADB_MAX_CALLS_MONTH` (180 par défaut).
 5. **Déployer > Nouveau déploiement**, roue dentée « Sélectionner le type » : **Application Web**.
    - Description : `relay`
    - Exécuter en tant que : **Moi**
@@ -40,7 +43,7 @@ Modifier le code, enregistrer, puis **Déployer > Gérer les déploiements > cra
 2. Onglet **Endpoints** : la clé s'affiche dans `X-RapidAPI-Key`. La copier.
 3. La coller dans **Paramètres du projet > Propriétés du script**, propriété `AERODATABOX_KEY`. Jamais dans le code, jamais dans le Sheet (il est lisible par toute personne qui a le lien).
 
-Consommation : une requête par aéroport et par tranche de 12 h, gardée dans l'onglet privé `ScheduleCache`. La première résolution d'un aéroport lit la veille et les 7 jours suivants (16 requêtes), ensuite environ 2 requêtes par jour et par aéroport. Le relais s'arrête de lui-même avant `ADB_MAX_CALLS_MONTH` requêtes dans le mois (300 par défaut) et le compteur s'affiche dans **Check setup**. Vérifier sur la page Pricing le quota mensuel exact de l'offre gratuite et régler `ADB_MAX_CALLS_MONTH` en dessous.
+Consommation (usine active seulement) : la résolution lit la veille et les 7 jours suivants (16 requêtes), une fois par mois, plus 2 à 4 requêtes quand une ligne est ajoutée. Les heures annoncées par les compagnies utilisent le reste du budget, réparti sur le mois (environ 5 lectures par jour avec 180). Le relais ne fait plus aucun appel au-delà de `ADB_MAX_CALLS_MONTH` requêtes dans le mois (180 par défaut) ; le compteur s'affiche dans **Check setup**. L'offre gratuite Basic donne 400 unités par mois ; une lecture du tableau d'un aéroport peut compter 2 unités, d'où 180 par défaut. Vérifier sur la page Pricing que l'offre a une limite stricte (« hard limit ») et pas de dépassement facturé.
 
 ### Pourquoi AeroDataBox
 
@@ -65,7 +68,7 @@ Pour chaque ligne d'un onglet d'unité (`UNITS` dans RULES), à partir de la col
 - `AUTO_CALLSIGN`, `AUTO_AIRLINE`, `AUTO_AIRCRAFT` (le type d'avion sert à la règle widebody).
 - `STATUS` : `Manual override` dès qu'une ETA ou une ETD est saisie à la main (la valeur manuelle gagne toujours), `Resolved` sinon, `Unresolved` si le vol n'est pas trouvé.
 
-Le menu résout toutes les lignes. Le déclencheur de nuit ne résout que les lignes nouvelles ou `Unresolved`, et toutes les lignes le lundi (les horaires changent).
+Le menu résout toutes les lignes de l'usine active (« Resolve this tab » : l'onglet ouvert). Le déclencheur de nuit ne résout que les lignes nouvelles, et toutes les lignes le 1er du mois.
 
 ## Historique des arrivées (onglet History)
 

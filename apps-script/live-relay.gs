@@ -14,8 +14,14 @@
  *     u      unit tab whose history medians are returned (default: DEFAULT_UNIT of RULES)
  *
  * PRIVATE (owner only): Sheet menu "Ops On Time" and time triggers
- *   resolveFlights   fills the AUTO_* columns of every unit tab from the schedule API (AeroDataBox),
- *                    one request per airport and per 12 h window, cached in the private ScheduleCache tab.
+ *   Only the ACTIVE unit (ACTIVE_UNIT, else DEFAULT_UNIT of RULES) is resolved, watched and refreshed:
+ *   the other unit tabs are kept as saved copies and never cost a request.
+ *   resolveFlights   fills the AUTO_* columns of the active unit tab from the schedule API (AeroDataBox),
+ *                    one request per 12 h window, cached in the private ScheduleCache tab.
+ *                    Nightly: new rows only; every row on the 1st of the month (seasonal schedules).
+ *   refreshLive      hourly: when an ETA or ETD of the active unit is close, reads the airport board
+ *                    (AeroDataBox, next 12 h) for the airline's revised times, within a monthly budget
+ *                    spread over the remaining days. Stored in the private LiveStatus tab.
  *   recordHistory    records real landing times in the private History tab and learns the callsign
  *                    really seen for each arriving flight (AUTO_CALLSIGN).
  *   Every automatic change is logged in the Audit tab (DATE, SOURCE, KEY, OLD, NEW).
@@ -23,7 +29,8 @@
  * Script properties (Project Settings > Script properties). Never in this file, never in the Sheet:
  *   AERODATABOX_KEY   RapidAPI key of the AeroDataBox API (schedules). Without it, nothing is resolved.
  *   AERODATABOX_HOST  optional, default aerodatabox.p.rapidapi.com
- *   ADB_MAX_CALLS_MONTH optional, default 300: the resolver stops before this many calls in a month.
+ *   ADB_MAX_CALLS_MONTH optional, default 180: no schedule call at all beyond this many in a month
+ *                     (free plan of 400 units, an airport board call may count 2 units).
  *   SHEET_ID          only if the script is not bound to the Sheet.
  *   TRIGGER_MIN       written by installTriggers.
  */
@@ -46,6 +53,13 @@ var DEPARTURES_HEAD = ['DATE', 'UNIT', 'FLIGHT', 'ETD_SCHEDULED', 'GROUND_SEEN_A
 var DEP_WATCH_BEFORE_MIN = 60;      // watch a departure from its scheduled ETD - 60 min
 var DEP_WATCH_AFTER_MIN = 240;      // until ETD + 240 min
 var TODAY_CACHE_SEC = 120;
+
+var LIVE_SHEET = 'LiveStatus';
+var LIVE_HEAD = ['DATE', 'DIR', 'NUMBER', 'SCHED', 'EST', 'EST_KIND', 'ACTUAL', 'STATUS', 'FETCHED_AT'];
+var ADB_MAX_DEFAULT = 180;
+var LIVE_SOON_MIN = 180;            // refresh only when an ETA or ETD of the active unit is within 3 h
+var LIVE_MIN_GAP_MIN = 60;          // never two board reads less than 1 h apart
+var LIVE_RESERVE_CALLS = 20;        // kept for the monthly schedule resolution
 
 var SCHEDULE_SHEET = 'ScheduleCache';
 var SCHEDULE_HEAD = ['AIRPORT', 'DATE', 'DIR', 'NUMBER', 'TIME', 'CALLSIGN', 'AIRCRAFT', 'REG', 'AIRLINE', 'STATUS', 'FETCHED_AT', 'ORIGIN'];
@@ -196,6 +210,14 @@ function todayEvents(unit) {
     if (r.DATE !== date || !r.DEPARTED_AT || (r.UNIT && r.UNIT !== unit)) return;
     out.dep[String(r.FLIGHT).toUpperCase() + '|' + r.ETD_SCHEDULED] = { at: r.DEPARTED_AT.slice(-5), day: r.DEPARTED_AT.slice(0, 10), est: r.ESTIMATED === 'yes' };
   });
+  // Airline revised times read from the airport board (refreshLive): { 'ARR|EK763': [{ s, e, k, a, st, at }] }.
+  out.est = {};
+  var ls = ss.getSheetByName(LIVE_SHEET);
+  if (ls) readTable(ls, LIVE_HEAD).rows.forEach(function (r) {
+    if (r.DATE !== date) return;
+    var k = r.DIR + '|' + r.NUMBER;
+    (out.est[k] = out.est[k] || []).push({ s: r.SCHED, e: r.EST, k: r.EST_KIND, a: r.ACTUAL, st: r.STATUS, at: r.FETCHED_AT });
+  });
   cache.put(ck, JSON.stringify(out), TODAY_CACHE_SEC);
   return out;
 }
@@ -210,7 +232,7 @@ function recordHistory() {
     if (!isTrue(base.HISTORY_ENABLED)) return;
     var sh = historySheet(ss), table = readHistory(sh), audit = [];
     var dsh = departuresSheet(ss), deps = readTable(dsh, DEPARTURES_HEAD);
-    var list = units(ss, base);
+    var list = [activeUnit(base)].filter(String);
     list.forEach(function (unit) { recordUnit(ss, unit, table, audit, deps); });
     writeHistory(sh, table, base);
     writeDepartures(dsh, deps, base);
@@ -389,17 +411,17 @@ function writeDepartures(sh, deps, cfg) {
 /* ---------------- schedules: AeroDataBox (menu and daily trigger only) ---------------- */
 
 /** Menu "Ops On Time > Resolve flights": fills AUTO_* for every unit tab listed in UNITS. */
-function resolveFlights() { return runResolve(null, 'menu', true); }
+function resolveFlights() { return runResolve(null, 'menu', 'all'); }
 /** Menu "Ops On Time > Resolve this tab" */
 function resolveActiveTab() {
   var sh = null;
   try { sh = SpreadsheetApp.getActiveSheet(); } catch (e) { sh = null; }
-  return runResolve(sh ? sh.getName() : null, 'menu', true);
+  return runResolve(sh ? sh.getName() : null, 'menu', 'all');
 }
-/** Daily trigger: rows still to resolve, and every row once a week (schedules change). */
+/** Nightly trigger: new rows only (no request when there is none); every row on the 1st of the month. */
 function resolveDaily() {
   var cfg = readRules(sheetBook(), '');
-  return runResolve(null, 'daily trigger', Utilities.formatDate(new Date(), timeZone(cfg), 'u') === '1');
+  return runResolve(null, 'daily trigger', Utilities.formatDate(new Date(), timeZone(cfg), 'd') === '1' ? 'all' : 'new');
 }
 
 function runResolve(onlyUnit, source, all) {
@@ -408,7 +430,7 @@ function runResolve(onlyUnit, source, all) {
   var report = [];
   try {
     var ss = sheetBook(), base = readRules(ss, ''), audit = [];
-    var todo = onlyUnit ? [cleanUnit(onlyUnit)] : units(ss, base);
+    var todo = onlyUnit ? [cleanUnit(onlyUnit)] : [activeUnit(base)].filter(String);
     todo.forEach(function (unit) {
       try { report.push(resolveUnit(ss, unit, source, all, audit)); }
       catch (err) { report.push(unit + ': ' + String(err.message || err)); }
@@ -425,7 +447,8 @@ function resolveUnit(ss, unit, source, all, audit) {
   if (!tab) return unit + ': tab not found or no FLIGHT column';
   var airport = String(cfg.AIRPORT_ICAO || '').toUpperCase();
   if (!/^[A-Z]{4}$/.test(airport)) return unit + ': AIRPORT_ICAO missing in RULES_' + unit;
-  var todo = tab.rows.filter(function (r) { return all || !r.auto.AUTO_STD || !r.auto.STATUS || /^unresolved$/i.test(r.auto.STATUS); });
+  // 'all': every row (menu, 1st of the month); 'new': rows never resolved (no STATUS yet).
+  var todo = tab.rows.filter(function (r) { return all === 'all' || !r.auto.STATUS; });
   if (!todo.length) return unit + ': nothing to resolve';
   var tz = timeZone(cfg), look = Math.max(1, Math.min(7, toNum(cfg.SCHEDULE_LOOKAHEAD_DAYS, 7)));
   var dates = [];
@@ -555,38 +578,140 @@ function loadSchedule(ss, airport, dates) {
   return out;
 }
 
-// One 12 h window of departures and arrivals. Returns { items } or { error }.
-function adbFetch(airport, date, half) {
+// Monthly budget of schedule calls (ADB_MAX_CALLS_MONTH): { used, max, key }.
+function adbBudget() {
+  var props = PropertiesService.getScriptProperties(), key = 'ADB_CALLS_' + Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM');
+  return { used: toNum(props.getProperty(key), 0), max: toNum(props.getProperty('ADB_MAX_CALLS_MONTH'), ADB_MAX_DEFAULT), key: key };
+}
+
+// One airport board read (departures and arrivals, at most 12 h, local times). Returns { json } or { error }.
+function adbCall(airport, fromLocal, toLocal) {
   var props = PropertiesService.getScriptProperties();
   var apiKey = props.getProperty('AERODATABOX_KEY');
   if (!apiKey) return { error: 'AERODATABOX_KEY is not set in the script properties' };
-  var month = Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM'), used = toNum(props.getProperty('ADB_CALLS_' + month), 0);
-  var max = toNum(props.getProperty('ADB_MAX_CALLS_MONTH'), 300);
-  if (used >= max) return { error: 'monthly limit of ' + max + ' schedule calls reached (ADB_MAX_CALLS_MONTH)' };
+  var b = adbBudget();
+  if (b.used >= b.max) return { error: 'monthly limit of ' + b.max + ' schedule calls reached (ADB_MAX_CALLS_MONTH)' };
   var host = props.getProperty('AERODATABOX_HOST') || 'aerodatabox.p.rapidapi.com';
-  var from = date + 'T' + (half === '00' ? '00:00' : '12:00'), to = date + 'T' + (half === '00' ? '11:59' : '23:59');
-  var url = 'https://' + host + '/flights/airports/icao/' + airport + '/' + from + '/' + to +
+  var url = 'https://' + host + '/flights/airports/icao/' + airport + '/' + fromLocal + '/' + toLocal +
     '?withLeg=true&direction=Both&withCancelled=true&withCodeshared=false&withCargo=false&withPrivate=false&withLocation=false';
   var res = UrlFetchApp.fetch(url, { headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': host }, muteHttpExceptions: true });
-  props.setProperty('ADB_CALLS_' + month, String(used + 1));
+  props.setProperty(b.key, String(b.used + 1));
   var code = res.getResponseCode();
-  if (code === 204) return { items: [] };
+  if (code === 204) return { json: {} };
   if (code !== 200) return { error: 'schedule API answered ' + code + (code === 401 || code === 403 ? ' (check the key and the subscription)' : code === 429 ? ' (quota)' : '') };
-  var json = JSON.parse(res.getContentText()), items = [];
+  return { json: JSON.parse(res.getContentText()) };
+}
+
+// Every movement of a board answer: { dir, x, leg, number } (leg = the movement at the airport).
+function boardMovements(json) {
+  var out = [];
   [['departures', 'DEP', 'departure'], ['arrivals', 'ARR', 'arrival']].forEach(function (k) {
     (json[k[0]] || []).forEach(function (x) {
-      var leg = x[k[2]] || x.movement || {}, st = leg.scheduledTime || {};
-      var local = String(st.local || leg.scheduledTimeLocal || '');
-      var m = /(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/.exec(local), n = normFlight(x.number);
-      if (!m || !n) return;
-      items.push({ DATE: m[1], DIR: k[1], NUMBER: n.norm, TIME: m[2] + ':' + m[3], CALLSIGN: String(x.callSign || '').replace(/\s+/g, '').toUpperCase(),
-        AIRCRAFT: String((x.aircraft && x.aircraft.model) || ''), REG: String((x.aircraft && x.aircraft.reg) || '').toUpperCase(),
-        AIRLINE: String((x.airline && x.airline.name) || ''), STATUS: String(x.status || ''),
-        // arrivals: airport the flight comes from (departure leg, or the movement's other airport)
-        ORIGIN: k[1] === 'ARR' ? String(((x.departure && x.departure.airport) || (x.movement && x.movement.airport) || {}).icao || '').toUpperCase() : '' });
+      var n = normFlight(x.number);
+      if (n) out.push({ dir: k[1], x: x, leg: x[k[2]] || x.movement || {}, number: n.norm });
     });
   });
+  return out;
+}
+function localParts(v) {
+  var m = /(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/.exec(String((v && v.local) || v || ''));
+  return m ? { date: m[1], time: m[2] + ':' + m[3] } : null;
+}
+
+// One 12 h window of departures and arrivals. Returns { items } or { error }.
+function adbFetch(airport, date, half) {
+  var from = date + 'T' + (half === '00' ? '00:00' : '12:00'), to = date + 'T' + (half === '00' ? '11:59' : '23:59');
+  var res = adbCall(airport, from, to);
+  if (res.error) return res;
+  var items = [];
+  boardMovements(res.json).forEach(function (mv) {
+    var x = mv.x, p = localParts(mv.leg.scheduledTime || mv.leg.scheduledTimeLocal);
+    if (!p) return;
+    items.push({ DATE: p.date, DIR: mv.dir, NUMBER: mv.number, TIME: p.time, CALLSIGN: String(x.callSign || '').replace(/\s+/g, '').toUpperCase(),
+      AIRCRAFT: String((x.aircraft && x.aircraft.model) || ''), REG: String((x.aircraft && x.aircraft.reg) || '').toUpperCase(),
+      AIRLINE: String((x.airline && x.airline.name) || ''), STATUS: String(x.status || ''),
+      // arrivals: airport the flight comes from (departure leg, or the movement's other airport)
+      ORIGIN: mv.dir === 'ARR' ? String(((x.departure && x.departure.airport) || (x.movement && x.movement.airport) || {}).icao || '').toUpperCase() : '' });
+  });
   return { items: items };
+}
+
+/* ---------------- airline revised times of the active unit (hourly trigger, budgeted) ---------------- */
+
+// Reads the airport board only when an ETA or ETD of the active unit is within LIVE_SOON_MIN and the
+// last read is old enough for the budget left: calls left this month (minus a reserve for the monthly
+// resolution) spread over the days left, over the hours of the day that have flights.
+function refreshLive(force) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return 'busy';
+  try {
+    var ss = sheetBook(), base = readRules(ss, ''), unit = activeUnit(base);
+    var cfg = readRules(ss, unit), tab = readUnit(ss, unit), props = PropertiesService.getScriptProperties();
+    if (!tab || !props.getProperty('AERODATABOX_KEY')) return 'no active unit tab or no key';
+    var airport = String(cfg.AIRPORT_ICAO || '').toUpperCase();
+    if (!/^[A-Z]{4}$/.test(airport)) return 'AIRPORT_ICAO missing';
+    var tz = timeZone(cfg), now = new Date(), nowMin = minutesOfDay(now, tz), dow = parseInt(Utilities.formatDate(now, tz, 'u'), 10);
+    var soon = tab.rows.some(function (f) {
+      if (f.days.indexOf(String(dow)) < 0) return false;
+      return [f.eta, f.etd].some(function (t) { return t !== null && t - nowMin >= -30 && t - nowMin <= LIVE_SOON_MIN; });
+    });
+    var last = toNum(props.getProperty('LIVE_LAST_MS'), 0), b = adbBudget();
+    var day = parseInt(Utilities.formatDate(now, 'UTC', 'd'), 10);
+    var monthDays = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0).getDate(), daysLeft = monthDays - day + 1;
+    var perDay = Math.floor((b.max - LIVE_RESERVE_CALLS - b.used) / daysLeft);
+    var hours = {};
+    tab.rows.forEach(function (f) { [f.eta, f.etd].forEach(function (t) { if (t !== null) hours[Math.floor(t / 60)] = 1; }); });
+    var busyHours = Math.max(1, Object.keys(hours).length);
+    var gap = perDay >= 1 ? Math.max(LIVE_MIN_GAP_MIN, Math.ceil(busyHours * 60 / perDay)) : Infinity;
+    if (!force && (!soon || perDay < 1 || (Date.now() - last) / 60000 < gap)) return 'skipped';
+    var from = new Date(now.getTime() - 60 * 60000), to = new Date(now.getTime() + 11 * 60 * 60000 - 60000);
+    var fmt = function (d) { return Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm"); };
+    var res = adbCall(airport, fmt(from), fmt(to));
+    props.setProperty('LIVE_LAST_MS', String(Date.now()));
+    if (res.error) { writeAudit(ss, [[Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm'), 'airline times', unit, '', res.error]]); return res.error; }
+    var wanted = {};
+    tab.rows.forEach(function (f) {
+      [f.flight, f.flightIn, f.flightOut].concat(f.flightIn ? [] : neighbours(f.flight)).forEach(function (n) { var x = normFlight(n); if (x) wanted[x.norm] = 1; });
+    });
+    var at = Utilities.formatDate(now, tz, 'HH:mm'), rows = [];
+    boardMovements(res.json).forEach(function (mv) {
+      if (!wanted[mv.number]) return;
+      var sch = localParts(mv.leg.scheduledTime), rev = localParts(mv.leg.revisedTime), pred = localParts(mv.leg.predictedTime);
+      var act = localParts(mv.leg.runwayTime) || localParts(mv.leg.actualTime);
+      if (!sch) return;
+      var est = rev || pred;
+      rows.push({ DATE: sch.date, DIR: mv.dir, NUMBER: mv.number, SCHED: sch.time, EST: est ? est.time : '', EST_KIND: rev ? 'revised' : pred ? 'predicted' : '',
+        ACTUAL: act ? act.time : '', STATUS: String(mv.x.status || ''), FETCHED_AT: at });
+    });
+    writeLive(ss, rows, Utilities.formatDate(new Date(now.getTime() - 86400000), tz, 'yyyy-MM-dd'));
+    CacheService.getScriptCache().remove('today:' + unit);
+    CacheService.getScriptCache().remove('today:');
+    return rows.length + ' flights updated';
+  } finally {
+    lock.releaseLock();
+  }
+}
+/** Menu: read the airport board now (one call). */
+function refreshLiveNow() { return say('Airline times: ' + refreshLive(true)); }
+
+function liveSheet(ss) {
+  var sh = ss.getSheetByName(LIVE_SHEET);
+  if (!sh) { sh = ss.insertSheet(LIVE_SHEET); sh.getRange(1, 1, 1, LIVE_HEAD.length).setValues([LIVE_HEAD]); sh.setFrozenRows(1); }
+  return sh;
+}
+// Merges the new rows (key DATE|DIR|NUMBER|SCHED) and drops the days before keepFrom.
+function writeLive(ss, rows, keepFrom) {
+  var sh = liveSheet(ss), t = readTable(sh, LIVE_HEAD), byKey = {}, order = [];
+  t.rows.concat(rows).forEach(function (r) {
+    if (!r.DATE || r.DATE < keepFrom) return;
+    var k = r.DATE + '|' + r.DIR + '|' + r.NUMBER + '|' + r.SCHED;
+    if (!byKey[k]) order.push(k);
+    byKey[k] = r;
+  });
+  var data = order.map(function (k) { return LIVE_HEAD.map(function (h) { return String(byKey[k][h] === undefined ? '' : byKey[k][h]); }); });
+  var lastRow = sh.getLastRow();
+  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, LIVE_HEAD.length).clearContent();
+  if (data.length) sh.getRange(2, 1, data.length, LIVE_HEAD.length).setNumberFormat('@').setValues(data);
 }
 
 /* ---------------- menu and triggers ---------------- */
@@ -595,6 +720,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Ops On Time')
     .addItem('Resolve flights', 'resolveFlights')
     .addItem('Resolve this tab', 'resolveActiveTab')
+    .addItem('Refresh airline times now', 'refreshLiveNow')
     .addSeparator()
     .addItem('Install triggers', 'installTriggers')
     .addItem('Check setup', 'checkSetup')
@@ -604,16 +730,17 @@ function onOpen() {
 /** Run once (menu or editor): history every 5 to 30 min, schedules every night. */
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (['recordHistory', 'resolveDaily'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
+    if (['recordHistory', 'resolveDaily', 'refreshLive'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
   var ss = sheetBook(), cfg = readRules(ss, '');
   var refreshMin = Math.round(toNum(cfg.ADSB_REFRESH_SEC, 1200) / 60), n = 5;
   [5, 10, 15, 30].forEach(function (a) { if (a <= refreshMin) n = a; }); // allowed trigger intervals
   ScriptApp.newTrigger('recordHistory').timeBased().everyMinutes(n).create();
   ScriptApp.newTrigger('resolveDaily').timeBased().everyDays(1).atHour(2).create();
+  ScriptApp.newTrigger('refreshLive').timeBased().everyHours(1).create();
   PropertiesService.getScriptProperties().setProperty('TRIGGER_MIN', String(n));
   historySheet(ss); scheduleSheet(ss); auditSheet(ss); departuresSheet(ss);
-  return say('History every ' + n + ' min, schedules every night at about 02:00. ' + (tzWarning(cfg) || 'Time zone OK: ' + timeZone(cfg)));
+  return say('Active unit ' + activeUnit(cfg) + '. History every ' + n + ' min, new flights every night at about 02:00, airline times checked every hour (budgeted). ' + (tzWarning(cfg) || 'Time zone OK: ' + timeZone(cfg)));
 }
 /** Kept for older instructions. */
 function installTrigger() { return installTriggers(); }
@@ -621,9 +748,12 @@ function installTrigger() { return installTriggers(); }
 function checkSetup() {
   var ss = sheetBook(), cfg = readRules(ss, ''), props = PropertiesService.getScriptProperties(), lines = [];
   lines.push('Sheet: ' + ss.getName());
-  lines.push('Units: ' + units(ss, cfg).map(function (u) { return u + (readUnit(ss, u) ? '' : ' (tab missing)'); }).join(', '));
+  var act = activeUnit(cfg);
+  lines.push('Active unit (the only one resolved and watched): ' + (act || 'none (DEFAULT_UNIT in RULES)') + (act && !readUnit(ss, act) ? ' (tab missing)' : '') + ' · airport ' + (readRules(ss, act).AIRPORT_ICAO || '?'));
+  lines.push('Saved unit tabs (no request): ' + (units(ss, cfg).filter(function (u) { return u !== act; }).join(', ') || 'none'));
   lines.push('Schedule API key: ' + (props.getProperty('AERODATABOX_KEY') ? 'set' : 'MISSING (Project Settings > Script properties > AERODATABOX_KEY)'));
-  lines.push('Schedule calls this month: ' + (props.getProperty('ADB_CALLS_' + Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM')) || 0) + ' / ' + toNum(props.getProperty('ADB_MAX_CALLS_MONTH'), 300));
+  var b = adbBudget();
+  lines.push('Schedule calls this month: ' + b.used + ' / ' + b.max + ' (ADB_MAX_CALLS_MONTH)');
   lines.push('Triggers: ' + (ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); }).join(', ') || 'none (run Install triggers)'));
   lines.push(tzWarning(cfg) || 'Time zone OK: ' + timeZone(cfg));
   return say(lines.join('\n'));
@@ -667,6 +797,8 @@ function readRules(ss, unit) {
   return cfg;
 }
 
+// The one unit the relay works for (resolution, watching, airline times). Other tabs are saved copies.
+function activeUnit(cfg) { return cleanUnit(cfg.ACTIVE_UNIT || cfg.DEFAULT_UNIT || ''); }
 function units(ss, cfg) {
   return unique(String(cfg.UNITS || cfg.DEFAULT_UNIT || '').split(/[,;\s]+/).map(cleanUnit).filter(String));
 }

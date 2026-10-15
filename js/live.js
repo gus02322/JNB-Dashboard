@@ -254,26 +254,78 @@
         st.departedAt = C.t2m(dep.at) + (dep.day && dep.day > t.date ? 1440 : 0); st.depEstimated = !!dep.est;
         addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: dep.at, reason: 'take-off detected by the relay' + (dep.est ? ' (estimated)' : '') });
       }
+      // Airline revised times from the airport board (relay, budgeted reads): used only while
+      // live tracking has no ETA of its own, always labelled as the airline's estimate.
+      const prev = st.airline || {}, al = { at: '' };
+      const arrNums = [f.flightIn || f.flight].concat(f.flightIn ? [] : RU.neighbours(f.flight));
+      const a = pickEst(t.est, 'ARR', arrNums, C.t2m(f.eta));
+      if (a) {
+        al.at = a.at; al.etaStatus = a.st; al.etaKind = a.k; al.etaSched = C.t2m(a.s);
+        if (C.t2m(a.e) !== null) al.eta = C.t2m(a.e) + dayShift(a.s, C.t2m(f.eta));
+        if (C.t2m(a.a) !== null && /arriv|landed/i.test(a.st)) al.landed = C.t2m(a.a) + dayShift(a.s, C.t2m(f.eta));
+      }
+      const d = pickEst(t.est, 'DEP', [f.flightOut || f.flight], C.t2m(f.etd));
+      if (d) {
+        al.at = al.at || d.at; al.etdStatus = d.st;
+        if (C.t2m(d.e) !== null) al.etd = C.t2m(d.e) + dayShift(d.s, C.t2m(f.etd));
+        if (C.t2m(d.a) !== null && /depart|airborne|enroute/i.test(d.st)) al.departed = C.t2m(d.a) + dayShift(d.s, C.t2m(f.etd));
+      }
+      if (a || d) {
+        if (al.eta !== undefined && al.eta !== prev.eta) addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.eta), reason: 'airline ' + (al.etaKind || 'estimate') + ' (airport board ' + al.at + ')' });
+        if (al.etd !== undefined && al.etd !== prev.etd) addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.etd), reason: 'airline estimate (airport board ' + al.at + ')' });
+        st.airline = al;
+        // Landing or take-off reported by the airport: a fact, used when live tracking missed it.
+        if (al.landed !== undefined && st.landedAt === undefined) {
+          st.landedAt = st.eta = al.landed; st.confidence = 'landed'; st.airborneSeen = true; st.seenAt = Date.now(); st.fromRelay = true;
+          addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.landed), reason: 'landing reported by the airport board' });
+        }
+        if (al.departed !== undefined && st.departedAt === undefined) {
+          st.departedAt = al.departed; st.depEstimated = false;
+          addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.departed), reason: 'take-off reported by the airport board' });
+        }
+      }
     });
+  }
+  // Entry of the airport board closest to the planned time (within 3 h), for any of the numbers.
+  function pickEst(est, dir, nums, planM) {
+    if (!est || planM === null || planM === undefined) return null;
+    let best = null, gap = 181;
+    nums.forEach(n => {
+      const x = RU.normFlight(n);
+      (x && est[dir + '|' + x.norm] || []).forEach(e => {
+        const s = C.t2m(e.s);
+        if (s === null) return;
+        const g = Math.min(Math.abs(s - planM), Math.abs(s + 1440 - planM), Math.abs(s - 1440 - planM));
+        if (g < gap) { gap = g; best = e; }
+      });
+    });
+    return best;
+  }
+  // The board time belongs to the plan's day: keeps 23:50 vs 00:10 on the same side of midnight.
+  function dayShift(schedText, planM) {
+    const s = C.t2m(schedText);
+    return s === null || planM === null || planM === undefined ? 0 : s - planM > 720 ? -1440 : planM - s > 720 ? 1440 : 0;
   }
 
   // Plan after the live ETA (rule engine: TURN slides with the ETA, DAYSTOP keeps its plan),
   // applied only when a value moves by RECALC_THRESHOLD_MIN. Every change is logged.
   function recalc(f, p, nm) {
     const st = fs(f.id), plan = f.plan;
-    if (st.eta === undefined || !plan) return;
+    const airlineOnly = st.eta === undefined && st.airline && st.airline.eta !== undefined;
+    const eta = airlineOnly ? st.airline.eta : st.eta;
+    if (eta === undefined || !plan) return;
     const rules = data.get().rules || RU.readRules(() => undefined);
-    const res = RU.applyEta(plan, st.eta, rules);
+    const res = RU.applyEta(plan, eta, rules);
     st.dayStop = plan.profile === 'DAYSTOP';
     st.d1Check = res.d1Check;
     if (res.marginAlert && !st.marginAlerted && plan.truck - nm >= 0) {
       st.marginAlerted = true;
-      addLog({ flight: f.flight, field: 'Day stop margin', old: C.m2t(plan.truck), new: 'ETA ' + C.m2t(st.eta), reason: res.reason });
+      addLog({ flight: f.flight, field: 'Day stop margin', old: C.m2t(plan.truck), new: 'ETA ' + C.m2t(eta), reason: res.reason });
       tightQueue.push({ flight: f.flight, airline: f.airline, type: 'truck', lbl: 'Truck Dep', time: C.m2t(plan.truck), minsLeft: Math.round(plan.truck - nm), badge: 'Day stop margin' });
     }
     const prev = st.applied || { etd: plan.etd, seal: plan.seal, truck: plan.truck };
     const next = {};
-    const reason = 'live ETA ' + C.m2t(st.eta) + (res.reason ? ' (' + res.reason + ')' : '');
+    const reason = (airlineOnly ? 'airline ETA ' : 'live ETA ') + C.m2t(eta) + (res.reason ? ' (' + res.reason + ')' : '');
     [['etd', 'ETD'], ['seal', 'Sealing'], ['truck', 'Truck Dep']].forEach(([k, label]) => {
       // A Sealing or Truck already past is done: a late live estimate never moves it afterwards.
       const r = k !== 'etd' && prev[k] !== null && prev[k] < nm ? { value: prev[k], changed: false } : C.applyWithThreshold(prev[k], res[k], p.threshold);
@@ -316,11 +368,12 @@
     if (demo && f.id === demo.id) return demo.view();
     if (status.state !== 'ok' || !state) return null;
     const st = state.flights[f.id];
+    if (st && st.eta === undefined && st.airline && st.airline.eta !== undefined) return airlineView(f, st);
     if (!st || st.eta === undefined) {
       if (!st) return null;
-      const v = { inbound: inboundView(f, st), depGround: st.depState === 'ground' };
+      const v = { inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline };
       if (st.departedAt !== undefined) Object.assign(v, { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out });
-      return v.inbound || v.departedAt !== undefined || v.depGround ? v : null;
+      return v.inbound || v.departedAt !== undefined || v.depGround || v.airline ? v : null;
     }
     const plan = f.plan || {}, a = st.applied || {}, p = settings();
     const level = C.arrivalLevel(st, Date.now(), p), ageMin = st.seenAt ? (Date.now() - st.seenAt) / 60000 : null;
@@ -334,6 +387,18 @@
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
       sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
       boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? st.eta - plan.eta : null,
+      inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline,
+    };
+  }
+
+  // ETA from the airline (airport board) while live tracking has not seen the aircraft: level 'airline'.
+  function airlineView(f, st) {
+    const plan = f.plan || {}, a = st.applied || {}, al = st.airline;
+    return {
+      level: 'airline', airline: al, eta: al.eta, landedAt: undefined, landed: false,
+      etd: a.etd, seal: a.seal, truck: a.truck, dayStop: plan.profile === 'DAYSTOP', departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
+      sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
+      boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? al.eta - plan.eta : null,
       inbound: inboundView(f, st), depGround: st.depState === 'ground',
     };
   }

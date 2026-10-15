@@ -293,6 +293,7 @@
 .empty-state { position: sticky; top: 16px; margin: 16px 24px 0 70px; font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 4px; padding: 14px 16px; z-index: 60; background: var(--surface); }
 /* LIVE TRACKING */
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #4dffb4; box-shadow: 0 0 6px #4dffb4; margin-right: 5px; vertical-align: middle; animation: livepulse 1.6s ease-in-out infinite; }
+.al-tag { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .5px; padding: 0 3px; margin-right: 5px; border: 1px solid #9fb4c8; border-radius: 3px; color: #9fb4c8; vertical-align: middle; line-height: 13px; }
 .est-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px dashed #9fb4c8; margin-right: 5px; vertical-align: middle; }
 @keyframes livepulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.75); } }
 .eb-sched { font-family: var(--font-mono); font-size: 0.82em; color: rgba(255,255,255,0.45); font-weight: 400; letter-spacing: 0; text-transform: none; }
@@ -1170,7 +1171,7 @@ function flightStatus(f,L){
   const thr=AngaData.setting('RECALC_THRESHOLD_MIN',5);
   if(L&&L.delay!==null&&L.delay!==undefined&&L.delay>=thr&&L.level!=='landed')return'delayed';
   if(L&&(L.level==='live'||L.level==='landed'||L.departedAt!==undefined))return'live';
-  if(L&&(L.level==='lost'||L.level==='sim'))return'estimated';
+  if(L&&(L.level==='lost'||L.level==='sim'||L.level==='airline'))return'estimated';
   return'scheduled';
 }
 // Incoming flight of a departure (the aircraft arrives under another number, e.g. 763 for 764).
@@ -1228,9 +1229,9 @@ function todayEvents(){
       }
       // An ETD earlier than the ETA is on the next day: shown on the next day's board.
       if(f.etd&&!sc.nextDayEtd&&activeFilters.etd){
-        const dep=!cx&&L&&L.departedAt!==undefined,a=!cx&&L&&L.etd!==undefined&&(!sim||L.etdAuto);
-        const lostE=a&&L.level==='lost',late=dep||cx?null:depLate(f,L);
-        evs.push({...b,late,depGround:!!(L&&L.depGround),key:f.id+'_ed',time:dep?m2t(L.departedAt):a?m2t(L.etd):f.etd,sched:f.etd,auto:sim&&a,live:sim?null:dep?'dep':lostE?'etdest':a?'etd':null,type:'etd',lbl:'ETD',tc:'type-etd'});
+        const dep=!cx&&L&&L.departedAt!==undefined,alE=!cx&&!sim&&!dep&&L&&L.airline&&L.airline.etd!==undefined,a=!alE&&!cx&&L&&L.etd!==undefined&&(!sim||L.etdAuto);
+        const lostE=a&&(L.level==='lost'||L.level==='airline'),late=dep||cx?null:depLate(f,L);
+        evs.push({...b,late,depGround:!!(L&&L.depGround),key:f.id+'_ed',time:dep?m2t(L.departedAt):alE?m2t(L.airline.etd):a?m2t(L.etd):f.etd,sched:f.etd,auto:sim&&a,live:sim?null:dep?'dep':alE?'airline':lostE?'etdest':a?'etd':null,type:'etd',lbl:'ETD',tc:'type-etd'});
       }
     }
     if(f.days.includes(prevDay)&&sc.nextDayEtd&&f.etd&&activeFilters.etd)
@@ -1246,6 +1247,7 @@ function arrivalEstimate(f,L,sc){
   if(lv==='live')return{kind:'eta',time:m2t(L.eta)};
   if(lv==='lost')return{kind:'lost',time:m2t(L.eta),ageMin:L.ageMin};
   if(lv==='landed')return{kind:'landed',time:m2t(L.landedAt)};
+  if(lv==='airline')return{kind:'airline',time:m2t(L.eta)};
   const h=liveOn()&&isToday(viewDate)&&sc.eta!==null?AngaLive.historyFor(f):null;
   if(h)return{kind:'hist',time:m2t(sc.eta+Math.round(h.median)),histN:h.n};
   return{kind:null,time:f.eta};
@@ -1253,6 +1255,7 @@ function arrivalEstimate(f,L,sc){
 // Time and label of an event block: new time first, the old one struck through beside it.
 function evTimeHtml(ev){
   if(ev.cancelled)return`<s class="old-t">${ev.sched}</s>`;
+  if(ev.live==='airline')return`<span class="al-tag" title="Airline estimate from the airport board, not observed">AL</span>≈${ev.time}${ev.time!==ev.sched?` <s class="old-t">${ev.sched}</s>`:''}`;
   if(ev.live==='lost'||ev.live==='hist'||ev.live==='etdest')return`<span class="est-dot" title="Estimated, not observed"></span>≈${ev.time} <s class="old-t">${ev.sched}</s>`;
   if(ev.live){const est=ev.live==='dep'||ev.live==='landed'?ev.time:'≈'+ev.time;return`<span class="live-dot" title="Live aircraft tracking (ADS-B)"></span>${est}${ev.time!==ev.sched?` <s class="old-t">${ev.sched}</s>`:''}`;}
   if(ev.auto&&ev.time!==ev.sched)return`${ev.time} <s class="old-t">${ev.sched}</s>`;
@@ -1268,6 +1271,7 @@ function evLabel(ev){
   if(ev.live==='etd')return'ETD <span class="st-chip st-live">Live</span>';
   if(ev.live==='etdest')return'ETD <span class="st-chip st-estimated">Estimated</span>';
   if(ev.live==='dep')return'Departed <span class="st-chip st-live">Live</span>';
+  if(ev.live==='airline')return ev.lbl+' <span class="st-chip st-estimated" title="Airline estimate from the airport board, not observed">Airline</span>';
   if(ev.late)return'ETD <span class="st-chip st-delayed" title="Not seen airborne by live tracking">Not airborne +'+ev.late+'m</span>';
   if(ev.type==='etd'&&ev.depGround)return'ETD <span class="st-chip st-scheduled">At the gate</span>';
   if(ev.auto&&ev.time!==ev.sched)return ev.lbl+' <span class="auto-badge" title="Recalculated automatically from the ETA">Auto updated</span>';
@@ -1888,7 +1892,9 @@ function openFlightSheet(flightId){
     if(key==='eta'&&L.level==='landed')return{t:m2t(L.landedAt),label:'Landed (detected)',dot:true,note:''};
     if(key==='eta'&&L.level==='lost')return{t:'≈'+m2t(L.eta),label:'Estimated ETA',dot:false,note:'estimated, not observed · last seen '+Math.round(L.ageMin)+' min ago'};
     if(key==='eta'&&L.level==='live')return{t:'≈'+m2t(L.eta),label:'Live estimated ETA',dot:true,note:CONF[L.confidence]||''};
+    if(key==='eta'&&L.level==='airline')return{t:'≈'+m2t(L.eta),label:'Airline ETA',dot:false,note:'airline '+(L.airline.etaKind||'estimate')+', airport board '+L.airline.at+', not observed'};
     if(key==='etd'&&L.departedAt!==undefined)return{t:m2t(L.departedAt),label:'Departed (live)',dot:true,note:''};
+    if(key==='etd'&&L.airline&&L.airline.etd!==undefined)return{t:'≈'+m2t(L.airline.etd),label:'Airline ETD',dot:false,note:'airport board '+L.airline.at+(L.airline.etdStatus?' · '+L.airline.etdStatus:'')};
     if(key==='etd'&&L.etd!==undefined)return{t:'≈'+m2t(L.etd),label:L.level==='lost'?'Estimated ETD':'Live estimated ETD',dot:L.level!=='lost',note:L.dayStop?'day stop, ETD kept':''};
     if(key==='sealing'&&L.sealAuto)return{t:m2t(L.seal),label:'Sealing',auto:true,note:''};
     if(key==='truck'&&L.truckAuto)return{t:m2t(L.truck),label:'Truck Dep',auto:true,note:''};
@@ -2020,7 +2026,7 @@ function fvModel(f){
   const level=lvl||(hist?'hist':'sched'),live=lvl==='live';
   const etaShown=lvl==='landed'?L.landedAt:lvl?L.eta:hist?sc.eta+Math.round(hist.median):sc.eta;
   const t={eta:etaShown,seal:L&&L.sealAuto?L.seal:sc.seal,truck:L&&L.truckAuto?L.truck:sc.truck,
-    etd:L&&L.departedAt!==undefined?L.departedAt:L&&L.etd!==undefined?L.etd:sc.etd};
+    etd:L&&L.departedAt!==undefined?L.departedAt:L&&L.airline&&L.airline.etd!==undefined&&!L.simulated?L.airline.etd:L&&L.etd!==undefined?L.etd:sc.etd};
   const nm=isToday(viewDate)?nowMins():-1;
   const boxes=f.box?[(r=>({day:f.box.day,m:r.m,base:r.base,auto:r.auto,flagged:r.check,hold:r.hold,rule:f.box.source==='rule'}))(boxFor(f,f.box.day==='D'?0:1))]:[];
   return{C,sc,L,live,level,hist,t,boxes,nm,status:st};
@@ -2038,6 +2044,7 @@ function renderFlightView(){
     :level==='live'?'<span class="fv-pill live"><span class="live-dot"></span>Live</span>'
     :level==='lost'?'<span class="fv-pill est">Estimated</span>'
     :level==='landed'?'<span class="fv-pill live">Landed (detected)</span>'
+    :level==='airline'?'<span class="fv-pill est">Airline estimate</span>'
     :fallback?'<span class="fv-pill fallback">Scheduled times</span>':theoretical(f,sc.eta)&&isToday(viewDate)&&sc.eta!==null&&nowMins()<sc.eta+30?'<span class="fv-pill est">Not seen yet · theoretical</span>':'<span class="fv-pill sched">Scheduled times</span>';
   const dir=sc.eta===null?'departure only':f.flightIn?'arrives as '+esc(f.flightIn)+', departs as '+esc(f.flight):'inbound';
   // schematic map: hub on the right; arrival placed by remaining distance (p = 1 - min(d, MAP_MAX_KM) / MAP_MAX_KM, or / route length for a theoretical position)
@@ -2076,7 +2083,7 @@ function renderFlightView(){
   else{
     // Theoretical position (SHOW_SCHEDULE_ESTIMATE): grey, hollow icon, always labelled, never shown as observed.
     const th=theoretical(f,t.eta);
-    if(th&&th.state==='enroute'){waiting=false;const u=nearU(th.totalKm>0?C.mapFraction(th.distKm,th.totalKm):C.mapFraction(th.distKm,maxKm)),a=q(u);svg=trail(u,'#5f6878',1.6,0.8)+icon(u,'theor')+`<text x="${a[0].toFixed(1)}" y="${(a[1]-14).toFixed(1)}" fill="#9aa3b5" font-size="11" text-anchor="middle" font-family="Inter,sans-serif">~${fmtKm(th.distKm)}</text>`+(f.originIcao?`<text x="${P0[0]}" y="${P0[1]+18}" fill="#8a93a6" font-size="11" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="1">${esc(f.originIcao)}</text>`:'');posTxt=`Not seen yet · theoretical position based on the scheduled ETA and a typical cruise speed, not observed · about ${fmtKm(th.distKm)} from ${esc(hub)}`;}
+    if(th&&th.state==='enroute'){waiting=false;const u=nearU(th.totalKm>0?C.mapFraction(th.distKm,th.totalKm):C.mapFraction(th.distKm,maxKm)),a=q(u);svg=trail(u,'#5f6878',1.6,0.8)+icon(u,'theor')+`<text x="${a[0].toFixed(1)}" y="${(a[1]-14).toFixed(1)}" fill="#9aa3b5" font-size="11" text-anchor="middle" font-family="Inter,sans-serif">~${fmtKm(th.distKm)}</text>`+(f.originIcao?`<text x="${P0[0]}" y="${P0[1]+18}" fill="#8a93a6" font-size="11" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="1">${esc(f.originIcao)}</text>`:'');posTxt=`Not seen yet · theoretical position based on the ${level==='airline'?'airline':'scheduled'} ETA and a typical cruise speed, not observed · about ${fmtKm(th.distKm)} from ${esc(hub)}`;}
     else if(th&&th.state==='notdeparted'){posTxt=`Not seen yet · theoretical take-off from ${esc(f.originIcao)} about ${m2t(th.depM)} (scheduled ETA minus the flight time), not observed`;}
     else if(th&&th.state==='arriving'){waiting=false;svg=trail(uRing,'#5f6878',1.6,0.8)+icon(uRing,'theor');posTxt=`Not seen yet · theoretically on final approach (scheduled ETA), not observed`;}
     else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))+' before the scheduled ETA';
@@ -2093,23 +2100,24 @@ function renderFlightView(){
   // headline: arrival (or departure for a departure-only flight or once the aircraft took off)
   const headKey=departed||sc.eta===null?'etd':'eta',headM=t[headKey];
   const headLbl=cx?'Cancelled':departed?'Took off (live'+(L.depEstimated?', estimated':'')+')'
-    :headKey==='eta'?(level==='sim'?'Simulated ETA (demo)':level==='live'?'Live estimated ETA':level==='lost'?'Estimated ETA (last seen '+fmtAge(L.ageMin)+' ago)':level==='landed'?'Landed (detected)':level==='hist'?'ETA estimated (history, '+hist.n+' days)':'Scheduled ETA')
-    :(L&&L.etd!==undefined?(level==='lost'?'Estimated ETD':'Live estimated ETD'):'Scheduled ETD');
-  const lblCls=level==='live'||level==='landed'||departed?'':level==='lost'||level==='hist'?' est':' sched';
+    :headKey==='eta'?(level==='sim'?'Simulated ETA (demo)':level==='live'?'Live estimated ETA':level==='lost'?'Estimated ETA (last seen '+fmtAge(L.ageMin)+' ago)':level==='landed'?'Landed (detected)':level==='airline'?'Airline ETA, not observed':level==='hist'?'ETA estimated (history, '+hist.n+' days)':'Scheduled ETA')
+    :(L&&L.airline&&L.airline.etd!==undefined&&!L.simulated?'Airline ETD, not observed':L&&L.etd!==undefined?(level==='lost'||level==='airline'?'Estimated ETD':'Live estimated ETD'):'Scheduled ETD');
+  const lblCls=level==='live'||level==='landed'||departed?'':level==='lost'||level==='hist'||level==='airline'?' est':' sched';
   const eta=`<div class="fv-eta"><div><div class="fv-eta-lbl${lblCls}">${headLbl}</div><div class="fv-eta-time">${headM===null?'-':m2t(headM)}</div></div>
     <div class="fv-eta-right"><div class="fv-count" id="fv-count"></div><div class="fv-upd" id="fv-upd"></div></div></div>`;
   // cards
   const box=boxes[0];
   const card=(c,lbl,m,sched,badge,sub)=>`<div class="fv-card" style="border-top-color:${c}"><div class="fv-card-lbl" style="color:${c}">${lbl}${badge||''}</div><div class="fv-card-time">${m===null||m===undefined?'-':m2t(m)}</div><div class="fv-card-sub">${sub!==undefined?sub:sched!==null&&sched!==undefined?'Scheduled '+m2t(sched):'Not planned'}</div></div>`;
   const liveB='<span class="fv-mini live"><span class="live-dot"></span>Live</span>',estB='<span class="fv-mini est">Estimated</span>',autoB=' <span class="auto-badge">Auto</span>';
-  const etaB=level==='sim'?'<span class="fv-mini sim">Demo</span>':level==='live'?liveB:level==='lost'||level==='hist'?estB:level==='landed'?'<span class="fv-mini live">Detected</span>':'';
+  const alB='<span class="fv-mini est">Airline</span>';
+  const etaB=level==='sim'?'<span class="fv-mini sim">Demo</span>':level==='airline'?alB:level==='live'?liveB:level==='lost'||level==='hist'?estB:level==='landed'?'<span class="fv-mini live">Detected</span>':'';
   const nd=t.etd!==null&&t.etd>=1440?' · next day':'';
   const cards=`<div class="fv-cards${cx?' fv-cancelled':''}">
     ${card('#4dffb4','ETA',t.eta,sc.eta,etaB)}
     ${card('#ffaa44','Sealing',t.seal,sc.seal,L&&L.sealAuto?autoB:'')}
     ${card('#c8aaff','Box Time',box?box.m:null,null,box&&box.hold?' <span class="st-chip st-cancelled">Hold</span>':box&&box.auto?autoB:box&&box.flagged?' <span class="gap-badge">Check</span>':'',box?(box.hold?'Hold production · ':'')+(box.day==='D-1'?'Day before (D-1)':'Same day (D)')+(box.auto?' · scheduled '+m2t(box.base):'')+(box.rule?' · rule':' · override'):'No slot')}
     ${card('#ff6b6b','Truck Departure',t.truck,sc.truck,L&&L.truckAuto?autoB:'')}
-    ${card('#66aaff','ETD',t.etd,sc.etd,level==='sim'?(L.etdAuto?autoB:''):L&&L.departedAt!==undefined?liveB:L&&L.etd!==undefined?(level==='lost'?estB:liveB):'',(L&&L.departedAt!==undefined?'Took off (live'+(L.depEstimated?', estimated':'')+') · scheduled '+(sc.etd===null?'-':m2t(sc.etd)):'Scheduled '+(sc.etd===null?'-':m2t(sc.etd)))+nd)}
+    ${card('#66aaff','ETD',t.etd,sc.etd,level==='sim'?(L.etdAuto?autoB:''):L&&L.departedAt!==undefined?liveB:L&&L.airline&&L.airline.etd!==undefined?alB:L&&L.etd!==undefined?(level==='lost'||level==='airline'?estB:liveB):'',(L&&L.departedAt!==undefined?'Took off (live'+(L.depEstimated?', estimated':'')+') · scheduled '+(sc.etd===null?'-':m2t(sc.etd)):'Scheduled '+(sc.etd===null?'-':m2t(sc.etd)))+nd)}
   </div>`;
   // mini timeline
   const pts=[['#4dffb4',t.eta,'ETA'],['#ffaa44',t.seal,'Sealing'],['#ff6b6b',t.truck,'Truck'],['#66aaff',t.etd,'ETD']].filter(p=>p[1]!==null&&p[1]!==undefined);
@@ -2131,7 +2139,7 @@ function renderFlightView(){
   const demoBanner=f.demo?'<div class="fv-demo">Demo: fictive flight with simulated observations, not real data.</div>':simOn||cx&&L&&L.simulated?'<div class="fv-demo">Demo simulation on this screen only: nothing is written to the Sheet.</div>':'';
   const demoCtl=demoOn()?`<div class="fv-sim"><span class="fv-sim-lbl">Demo</span>${[15,30,60].map(m=>`<button onclick="simFlight('${f.id}','delay',${m})">Delay +${m}</button>`).join('')}<button onclick="simFlight('${f.id}','delay',prompt('Delay in minutes','45'))">Custom</button><button onclick="simFlight('${f.id}','early',20)">Early -20</button><button onclick="simFlight('${f.id}','cancel')">Cancel flight</button><button class="fv-sim-reset" onclick="simFlight('${f.id}','reset')">Reset</button></div>`:'';
   document.getElementById('fv-box').innerHTML=`<div class="fv-head"><span class="fv-dot" style="background:${color}"></span><span class="fv-flight">${esc(f.flight)}</span><span class="fv-sub">${esc(f.airline)} · ${dir}${meal}</span>${pill}<span class="fv-close" onclick="closeFlightView()" title="Close">✕</span></div>
-    ${demoBanner}${inbStrip}${map}${eta}${cards}${tl}${demoCtl}<div class="fv-links"><a href="${trackerUrl(CFG.TRACKER_LIVE_URL,f.flight)}" target="_blank" rel="noopener">Open in a flight tracker ↗</a><a href="${trackerUrl(CFG.TRACKER_HISTORY_URL,f.flight)}" target="_blank" rel="noopener">Flight history ↗</a></div><div class="fv-rules">Rules for this flight: ${rules.join(' · ')||'no timing in the Sheet'}${level!=='sched'?' · Estimates come from live aircraft tracking (ADS-B) or past days, not from official airline schedules.':''}</div>`;
+    ${demoBanner}${inbStrip}${map}${eta}${cards}${tl}${demoCtl}<div class="fv-links"><a href="${trackerUrl(CFG.TRACKER_LIVE_URL,f.flight)}" target="_blank" rel="noopener">Open in a flight tracker ↗</a><a href="${trackerUrl(CFG.TRACKER_HISTORY_URL,f.flight)}" target="_blank" rel="noopener">Flight history ↗</a></div><div class="fv-rules">Rules for this flight: ${rules.join(' · ')||'no timing in the Sheet'}${level!=='sched'?' · Estimates come from live aircraft tracking (ADS-B), the airline times of the airport board, or past days.':''}</div>`;
   tickFlightView();
 }
 function tickFlightView(){
@@ -2155,6 +2163,7 @@ function tickFlightView(){
     else if(level==='lost')upd.textContent='Estimated position, not observed. Last seen '+age(L.seenAt)+' ago · confidence '+(L.dr?L.dr.confidence:'low');
     else if(level==='landed')upd.textContent='Landing detected by live aircraft tracking (ADS-B)';
     else if(level==='sim')upd.textContent='Demo simulation on this screen, not observed';
+    else if(level==='airline')upd.textContent='Airline '+(L.airline.etaKind||'estimate')+(L.airline.etaStatus?' ('+L.airline.etaStatus+')':'')+', airport board read at '+L.airline.at+' · aircraft not seen by live tracking yet';
     else if(level==='hist')upd.textContent='Scheduled ETA plus the median deviation of '+hist.n+' past days, not observed';
     else upd.textContent='Scheduled time from the planning';
   }
