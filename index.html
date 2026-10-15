@@ -2040,13 +2040,16 @@ function renderFlightView(){
     :level==='landed'?'<span class="fv-pill live">Landed (detected)</span>'
     :fallback?'<span class="fv-pill fallback">Scheduled times</span>':theoretical(f,sc.eta)&&isToday(viewDate)&&sc.eta!==null&&nowMins()<sc.eta+30?'<span class="fv-pill est">Not seen yet · theoretical</span>':'<span class="fv-pill sched">Scheduled times</span>';
   const dir=sc.eta===null?'departure only':f.flightIn?'arrives as '+esc(f.flightIn)+', departs as '+esc(f.flight):'inbound';
-  // schematic map: hub on the right; arrival placed by remaining distance (p = 1 - min(d, MAP_MAX_KM) / MAP_MAX_KM)
+  // schematic map: hub on the right; arrival placed by remaining distance (p = 1 - min(d, MAP_MAX_KM) / MAP_MAX_KM, or / route length for a theoretical position)
   const hub=AngaData.setting('AIRPORT_ICAO','')||'HUB';
   const P0=[40,150],P1=[300,8],P2=[548,118];
   const q=(u)=>[(1-u)*(1-u)*P0[0]+2*(1-u)*u*P1[0]+u*u*P2[0],(1-u)*(1-u)*P0[1]+2*(1-u)*u*P1[1]+u*u*P2[1]];
   const clampU=u=>Math.min(1,Math.max(0.02,u));
+  // keep an aircraft that has not arrived visible outside the hub ring (r=44), close to it
+  const uRing=(()=>{for(let u=1;u>0;u-=0.002){const a=q(u);if(Math.hypot(a[0]-P2[0],a[1]-P2[1])>=60)return u;}return 0.9;})();
+  const nearU=u=>Math.min(uRing,clampU(u));
   const icon=(u,style)=>{const a=q(u),b=q(Math.min(1,u+0.01)),ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
-    const path=style==='solid'?'fill="#eef0fa" stroke="#00d4ff" stroke-width="1"':style==='est'?'fill="none" stroke="#9fb4c8" stroke-width="1.6" stroke-dasharray="2.5 2"':'fill="none" stroke="#5f6878" stroke-width="1.4" stroke-dasharray="2 2"';
+    const path=style==='solid'?'fill="#eef0fa" stroke="#00d4ff" stroke-width="1"':style==='est'?'fill="none" stroke="#9fb4c8" stroke-width="1.6" stroke-dasharray="2.5 2"':style==='theor'?'fill="#2a303b" stroke="#aab3c5" stroke-width="1.6" stroke-dasharray="2.5 2"':'fill="none" stroke="#5f6878" stroke-width="1.4" stroke-dasharray="2 2"';
     return`<g transform="translate(${a[0].toFixed(1)},${a[1].toFixed(1)}) rotate(${ang.toFixed(1)})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" ${path}/></g>`;};
   const trail=(u,color,w,op)=>{const pts=[];for(let i=0;i<=40;i++)pts.push(q(u*i/40).map(v=>v.toFixed(1)).join(','));return`<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" opacity="${op||1}"/>`;};
   let posTxt='Waiting for a live position: the aircraft is not in live coverage yet',waiting=true,svg='';
@@ -2058,9 +2061,9 @@ function renderFlightView(){
     posTxt=`In flight · ${Math.round(L.out.dist)} nm from ${esc(hub)} · ${Math.round(L.out.gs||0)} kt${fl(L.out.alt)} · took off ${L.depEstimated?'about ':''}${m2t(L.departedAt)}`;}
   else if(departed){waiting=false;posTxt='Took off '+(L.depEstimated?'about ':'')+m2t(L.departedAt)+' (live), now out of live coverage';}
   else if(level==='landed'){waiting=false;svg=trail(1,'#00d4ff',2.5)+`<g transform="translate(${P2[0]},${P2[1]-22})"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="#4dffb4"/></g>`;posTxt='Landed '+m2t(L.landedAt)+' (detected)';}
-  else if(level==='live'&&L.pos){waiting=false;const km=L.pos.dist*KM,u=clampU(C.mapFraction(km,maxKm));
+  else if(level==='live'&&L.pos){waiting=false;const km=L.pos.dist*KM,u=nearU(C.mapFraction(km,maxKm));
     svg=trail(u,'#00d4ff',2.5)+icon(u,'solid');posTxt=`${fmtKm(km)} from ${esc(hub)} · ${Math.round(L.pos.gs||0)} kt${fl(L.pos.alt)}`;}
-  else if(level==='lost'&&L.dr){waiting=false;const dr=L.dr,u=clampU(C.mapFraction(dr.distKm,maxKm)),du=dr.uncKm/maxKm;
+  else if(level==='lost'&&L.dr){waiting=false;const dr=L.dr,u=nearU(C.mapFraction(dr.distKm,maxKm)),du=dr.uncKm/maxKm;
     const seg=[];for(let i=0;i<=20;i++)seg.push(q(Math.max(0,u-du)+(Math.min(1,u+du)-Math.max(0,u-du))*i/20).map(v=>v.toFixed(1)).join(','));
     svg=trail(u,'#4a6274',2,0.9)+`<polyline points="${seg.join(' ')}" fill="none" stroke="#00d4ff" stroke-width="12" stroke-linecap="round" opacity="0.18"/>`+icon(dr.arrived?1:u,'est');
     posTxt=(dr.arrived?'Probably arrived, not confirmed. ':'Estimated position, not observed. ')+`Last seen ${fmtAge(L.ageMin)} ago`+(dr.arrived?'':` · about ${fmtKm(dr.distKm)} ± ${fmtKm(dr.uncKm)} · confidence ${dr.confidence}`);}
@@ -2073,9 +2076,9 @@ function renderFlightView(){
   else{
     // Theoretical position (SHOW_SCHEDULE_ESTIMATE): grey, hollow icon, always labelled, never shown as observed.
     const th=theoretical(f,t.eta);
-    if(th&&th.state==='enroute'){waiting=false;const u=clampU(C.mapFraction(th.distKm,maxKm));svg=icon(u,'sched');posTxt=`Not seen yet · theoretical position based on the scheduled ETA and a typical cruise speed, not observed · about ${fmtKm(th.distKm)} from ${esc(hub)}`;}
+    if(th&&th.state==='enroute'){waiting=false;const u=nearU(th.totalKm>0?C.mapFraction(th.distKm,th.totalKm):C.mapFraction(th.distKm,maxKm)),a=q(u);svg=trail(u,'#5f6878',1.6,0.8)+icon(u,'theor')+`<text x="${a[0].toFixed(1)}" y="${(a[1]-14).toFixed(1)}" fill="#9aa3b5" font-size="11" text-anchor="middle" font-family="Inter,sans-serif">~${fmtKm(th.distKm)}</text>`+(f.originIcao?`<text x="${P0[0]}" y="${P0[1]+18}" fill="#8a93a6" font-size="11" text-anchor="middle" font-family="Inter,sans-serif" letter-spacing="1">${esc(f.originIcao)}</text>`:'');posTxt=`Not seen yet · theoretical position based on the scheduled ETA and a typical cruise speed, not observed · about ${fmtKm(th.distKm)} from ${esc(hub)}`;}
     else if(th&&th.state==='notdeparted'){posTxt=`Not seen yet · theoretical take-off from ${esc(f.originIcao)} about ${m2t(th.depM)} (scheduled ETA minus the flight time), not observed`;}
-    else if(th&&th.state==='arriving'){waiting=false;svg=icon(0.97,'sched');posTxt=`Not seen yet · theoretically on final approach (scheduled ETA), not observed`;}
+    else if(th&&th.state==='arriving'){waiting=false;svg=trail(uRing,'#5f6878',1.6,0.8)+icon(uRing,'theor');posTxt=`Not seen yet · theoretically on final approach (scheduled ETA), not observed`;}
     else if(isToday(viewDate)&&sc.eta>nowMins()+AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))posTxt='Tracking starts '+fmtDur(AngaData.setting('ADSB_WINDOW_AFTER_MIN',600))+' before the scheduled ETA';
   }
   if(waiting)svg=`<g transform="translate(${P0[0]+14},${P0[1]-6}) rotate(-25)" opacity="0.45"><path d="M10 0 L-6 -7 L-3 0 L-6 7 Z" fill="none" stroke="#8a93a6" stroke-width="1.4"/></g>`;
