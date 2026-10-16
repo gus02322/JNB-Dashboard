@@ -51,28 +51,6 @@ test('live ETA is refused when the data cannot be trusted', () => {
   assert.equal(C.liveEta({}, 600, P).usable, false);
 });
 
-const R = { minRotationMin: 60, dayStopMinGround: 360 };
-
-test('strip and load: ETD = max(scheduled ETD, live ETA + rotation), Sealing and Truck keep their gaps', () => {
-  const f = row('16:00', '17:30', '15:00', '16:00');
-  const late = C.estimateDeparture(f, C.t2m('17:00'), R);
-  assert.equal(late.dayStop, false);
-  assert.equal(late.etd, C.t2m('18:00'));
-  assert.equal(late.seal, C.t2m('15:30'));
-  assert.equal(late.truck, C.t2m('16:30'));
-  const early = C.estimateDeparture(f, C.t2m('15:40'), R);
-  assert.equal(early.etd, C.t2m('17:30'));
-  assert.equal(early.shift, 0);
-});
-
-test('day stop: a late arrival does not move the ETD', () => {
-  const f = row('08:00', '19:00', '15:00', '16:00');
-  const r = C.estimateDeparture(f, C.t2m('10:00'), R);
-  assert.equal(r.dayStop, true);
-  assert.equal(r.etd, C.t2m('19:00'));
-  assert.equal(r.shift, 0);
-});
-
 test('threshold: small moves are ignored, larger ones applied', () => {
   assert.deepEqual(C.applyWithThreshold(600, 603, 5), { value: 600, changed: false });
   assert.deepEqual(C.applyWithThreshold(600, 606, 5), { value: 606, changed: true });

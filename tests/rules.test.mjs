@@ -41,9 +41,8 @@ test('defaults apply when the Sheet has no value, invalid values fall back too',
   assert.equal(d.turnTruck, -30);
   assert.equal(d.dayStopTruck, -180);
   assert.equal(d.box.threshold, 17 * 60);
-  const bad = R.readRules(k => (k === 'BOX_D1_CAP' ? 'soon' : k === 'MIN_ROTATION_MIN' ? 'x' : undefined));
+  const bad = R.readRules(k => (k === 'BOX_D1_CAP' ? 'soon' : undefined));
   assert.equal(bad.box.d1Cap, 15 * 60);
-  assert.equal(bad.minRotation, 60);
 });
 
 test('profile TURN: Truck = ETA - 30, Sealing = Truck - 1h', () => {
@@ -118,7 +117,7 @@ test('Box Time: D slot, D-1 capped, D-1 late slot', () => {
   assert.equal(b('17:01', '14:00').day, 'D');
 });
 
-test('delay in TURN: Truck, Sealing, ETD and Box D slide from the threshold', () => {
+test('delay in TURN: Truck, Sealing and Box D slide from the threshold, the ETD never moves', () => {
   const plan = R.computeRow({ flight: 'XW764', eta: '16:15', etd: '19:10' }, rules);
   const small = R.applyEta(plan, plan.eta + 4, rules);
   assert.equal(small.moved, false);
@@ -126,10 +125,10 @@ test('delay in TURN: Truck, Sealing, ETD and Box D slide from the threshold', ()
   assert.equal(d.moved, true);
   assert.equal(t(d.truck), '16:15');
   assert.equal(t(d.seal), '14:15');
-  assert.equal(t(d.etd), '19:10'); // 16:45 + 60 is still before the STD
+  assert.equal(t(d.etd), '19:10');
   assert.equal(t(d.box.m), '10:15');
   const big = R.applyEta(plan, plan.eta + 150, rules);
-  assert.equal(t(big.etd), '19:45');
+  assert.equal(t(big.etd), '19:10'); // strip and load: a late arrival keeps the planned departure
 });
 
 test('delay on a D-1 flight: the slot does not move, it is marked Check', () => {
