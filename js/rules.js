@@ -36,6 +36,7 @@
     ['THEORETICAL_MARGIN_MIN', '20', 'Theoretical position: taxi, climb and approach time added to the flight time, minutes'],
     ['DEP_LATE_MIN', '15', 'Departure not seen airborne this many minutes after the ETD: shown Not airborne'],
     ['HEALTH_GAP_MIN', '5', 'Data health: flag a Sheet time that differs from the rule by at least this many minutes'],
+    ['ADB_STALE_MIN', '300', 'AeroDataBox data older than this many minutes: the Updated time is shown as a warning'],
   ];
   const DEFAULTS = Object.fromEntries(RULE_DEFS.map(r => [r[0], r[1]]));
 
@@ -294,7 +295,52 @@
     now() { const t = Date.now(); return new Date(t + clock.shiftMs(t)); },
   };
 
+  /* ---------- AeroDataBox day (AUTO_ live columns written by the relay) ---------- */
+
+  // "yyyy-MM-dd HH:mm" to minutes from midnight of day (yyyy-MM-dd); null when unreadable.
+  function dayMin(stamp, day) {
+    const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})$/.exec(String(stamp || '').trim());
+    if (!m || !/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return null;
+    const t = t2m(m[2]);
+    return t === null ? null : t + Math.round((Date.parse(m[1] + 'T00:00:00Z') - Date.parse(day + 'T00:00:00Z')) / 864e5) * DAY;
+  }
+  // Today's AeroDataBox view of a row, or null when the data is not for today (operating day).
+  // eta / etd: actual, else revised, else scheduled (the airline's "expected" time); kind says which.
+  function adbDay(a, today) {
+    if (!a || !a.date || a.date !== today) return null;
+    const leg = (st, s, r, x) => {
+      const sched = dayMin(s, today), revised = dayMin(r, today), actual = dayMin(x, today);
+      const best = actual !== null ? actual : revised !== null ? revised : sched;
+      return { status: st || '', sched, revised, actual, time: best, kind: actual !== null ? 'actual' : revised !== null ? 'revised' : sched !== null ? 'scheduled' : '',
+        delay: sched !== null && best !== null ? best - sched : null };
+    };
+    const arr = leg(a.arrStatus, a.arrSched, a.arrRevised, a.arrActual), dep = leg(a.depStatus, a.depSched, a.depRevised, a.depActual);
+    const cancelled = /cancel/i.test(dep.status) || (!dep.status && /cancel/i.test(arr.status));
+    const diverted = /divert/i.test(arr.status);
+    const sameType = (x, y) => String(x).toUpperCase().replace(/[\s-]+/g, '') === String(y).toUpperCase().replace(/[\s-]+/g, '');
+    return {
+      arr, dep, cancelled, diverted, checkedAt: a.checkedAt || '', updatedUtc: a.updatedUtc || '',
+      origin: a.origin || '', dest: a.dest || '', reg: a.reg || '', hex: a.hex || '', aircraft: a.aircraft || '', gate: a.gate || '', terminal: a.terminal || '',
+      aircraftChange: a.prevAircraft && a.aircraft && !sameType(a.prevAircraft, a.aircraft) ? { from: a.prevAircraft, to: a.aircraft } : null,
+    };
+  }
+  // Sheet time against the airline's scheduled time: 'ok', { sheet, airline, gap } or null (one is missing).
+  function schedMatch(sheetM, airlineM) {
+    if (sheetM === null || sheetM === undefined || airlineM === null || airlineM === undefined) return null;
+    const gap = diff(airlineM, sheetM);
+    return gap === 0 ? 'ok' : { sheet: sheetM, airline: airlineM, gap };
+  }
+  // Minutes between a "yyyy-MM-dd HH:mm" stamp and a wall clock Date (both in the unit time zone).
+  function minutesSince(stamp, now) {
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(String(stamp || '').trim());
+    if (!m || !now) return null;
+    const a = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+    const b = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes());
+    return Math.round((b - a) / 60000);
+  }
+
   return {
+    adbDay, schedMatch, minutesSince, dayMin,
     DAY, RULE_DEFS, DEFAULTS, t2m, m2t, diff, fmtOffset, normFlight, sameFlight, callsigns, neighbours, parseOffset, parseExceptions,
     readRules, isWidebody, profileOf, boxSlot, computeRow, applyEta, cancelPlan, checkRow, tzOffsetMin, clock,
   };

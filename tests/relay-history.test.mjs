@@ -204,18 +204,19 @@ test('schedules: cached per airport and per 12 h window, one request each, never
   assert.ok(e.table('NEWU').every(r => !r.STATUS)); // saved tab: never resolved, no request
   e.ctx.resolveFlights();
   assert.equal(e.adbCalls.length, 16);
-  assert.equal(e.props['ADB_CALLS_2026-10'], '16');
+  const usage = Object.fromEntries(e.sheets.ApiUsage.rows.slice(1).map(r => [r[0], r[1]]));
+  assert.deepEqual([usage.MONTH, usage.CALLS, usage.UNITS_USED], ['2026-10', '16', '32']); // 2 units per call
+  assert.match(e.adbCalls[0], /^https:\/\/prod\.api\.market\/api\/v1\/aedbx\/aerodatabox\/flights\/airports\/icao\/XXXX\//);
 });
 
-test('schedules: the nightly run calls nothing when no row is new, everything on the 1st', () => {
+test('schedules: the nightly run never calls the API', () => {
   const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
   e.at('2026-10-06T08:00:00Z'); e.adb(fictiveSchedule);
   e.ctx.resolveFlights();
   const n = e.adbCalls.length;
   e.at('2026-10-07T00:05:00Z'); e.ctx.resolveDaily();
-  assert.equal(e.adbCalls.length, n); // every row already has a STATUS
   e.at('2026-11-01T00:05:00Z'); e.ctx.resolveDaily();
-  assert.ok(e.adbCalls.length > n); // monthly full resolution
+  assert.equal(e.adbCalls.length, n);
 });
 
 test('schedules: no key or quota reached, nothing is called and rows stay unresolved', () => {
@@ -223,9 +224,10 @@ test('schedules: no key or quota reached, nothing is called and rows stay unreso
   e.at('2026-10-06T08:00:00Z'); e.adb(fictiveSchedule);
   assert.match(e.ctx.resolveFlights(), /AERODATABOX_KEY is not set/);
   assert.equal(e.adbCalls.length, 0);
-  const q = makeEnv({ props: { AERODATABOX_KEY: 'k', ADB_MAX_CALLS_MONTH: '0' } });
+  const q = makeEnv({ props: { AERODATABOX_KEY: 'k' } });
+  q.sheets.RULES.rows.push(['ADB_MONTHLY_UNITS', '0', '']);
   q.at('2026-10-06T08:00:00Z'); q.adb(fictiveSchedule);
-  assert.match(q.ctx.resolveFlights(), /monthly limit/);
+  assert.match(q.ctx.resolveFlights(), /monthly budget reached/);
   assert.equal(q.adbCalls.length, 0);
 });
 
@@ -278,30 +280,134 @@ test('inbound under number - 1 when FLIGHT_IN is empty; the outbound number flyi
   assert.equal(out.today.arr['YY456|23:50'], '23:58');
 });
 
-test('airline times: board read only for the active unit, when a flight is close, within the budget', () => {
+// Fictive FIDS answer (relative window): EK-like daily turn ZZ789 in, ZZ790 out; times given in UTC.
+function fictiveBoard(opts = {}) {
+  const t = (d, hm) => ({ utc: d + ' ' + hm + 'Z', local: d + ' ' + hm + '+00:00' });
+  const d = opts.date || '2026-10-06';
+  return () => ({ code: 200, body: {
+    arrivals: [
+      { number: 'ZZ 0789', status: opts.arrStatus || 'EnRoute', lastUpdatedUtc: d + 'T08:20Z',
+        arrival: Object.assign({ scheduledTime: t(d, '10:00'), revisedTime: t(d, opts.arrRev || '10:25') }, opts.arrAct ? { runwayTime: t(d, opts.arrAct) } : {}),
+        departure: { airport: { icao: 'XORG', iata: 'ORG' } }, aircraft: { reg: 'ZS-ABC', modeS: 'ABC123', model: opts.model || 'Airbus A350-900' } },
+      { number: 'QQ 1', status: 'Expected', arrival: { scheduledTime: t(d, '10:10') } },
+    ],
+    departures: [
+      { number: 'ZZ 790', status: opts.depStatus || 'Expected', lastUpdatedUtc: d + 'T08:25Z',
+        departure: { scheduledTime: t(d, '12:00'), revisedTime: t(d, '12:40'), terminal: 'A', gate: 'A7' },
+        arrival: { airport: { icao: 'XDST' } }, aircraft: { reg: 'ZS-ABC', modeS: 'ABC123', model: opts.model || 'Airbus A350-900' } },
+    ],
+  } });
+}
+
+test('AeroDataBox: one FIDS call on the fixed schedule, live columns written, changes audited', () => {
   const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
-  const loc = t => ({ local: '2026-10-06 ' + t + '+00:00' });
-  e.adb(() => ({ code: 200, body: {
-    arrivals: [{ number: 'ZZ 789', status: 'EnRoute', arrival: { scheduledTime: loc('10:00'), revisedTime: loc('10:25') } },
-      { number: 'QQ 1', status: 'Expected', arrival: { scheduledTime: loc('10:10') } }], // not in the unit tab
-    departures: [{ number: 'ZZ 790', status: 'Delayed', departure: { scheduledTime: loc('12:00'), revisedTime: loc('12:40') } }],
-  } }));
-  e.at('2026-10-06T04:00:00Z');
-  assert.equal(e.ctx.refreshLive(), 'skipped'); // nothing within 3 h
-  assert.equal(e.adbCalls.length, 0);
-  e.at('2026-10-06T08:30:00Z');
-  assert.equal(e.ctx.refreshLive(), '2 flights updated');
+  e.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  e.adb(fictiveBoard());
+  e.at('2026-10-06T07:30:00Z');
+  assert.match(e.ctx.adbTick(), /not due/); // no fixed time reached since 04:00 was missed by more than 60 min
+  e.at('2026-10-06T08:02:00Z');
+  assert.match(e.ctx.adbTick(), /XXX: 3 movements read, 1 flights updated/);
   assert.equal(e.adbCalls.length, 1);
-  assert.match(e.adbCalls[0], /\/XXXX\/2026-10-06T07:30\/2026-10-06T19:29/);
-  e.at('2026-10-06T08:50:00Z');
-  assert.equal(e.ctx.refreshLive(), 'skipped'); // too soon after the last read
-  const out = JSON.parse(e.ctx.doGet({ parameter: { u: 'DEMO' } }));
-  assert.deepEqual(out.today.est['ARR|ZZ789'][0], { s: '10:00', e: '10:25', k: 'revised', a: '', st: 'EnRoute', at: '08:30' });
-  assert.equal(out.today.est['DEP|ZZ790'][0].e, '12:40');
-  assert.equal(out.today.est['ARR|QQ1'], undefined);
-  // budget spent: no call at all
-  e.props['ADB_CALLS_2026-10'] = '180';
-  e.at('2026-10-06T11:00:00Z');
-  assert.equal(e.ctx.refreshLive(), 'skipped');
-  assert.equal(e.adbCalls.length, 1);
+  assert.equal(e.adbCalls[0], 'https://prod.api.market/api/v1/aedbx/aerodatabox/flights/airports/Iata/XXX?offsetMinutes=-120&durationMinutes=720&direction=Both&withLeg=true&withCancelled=true&withCodeshared=true&withCargo=false&withPrivate=false&withLocation=true');
+  const r = e.table('DEMO').find(x => x.FLIGHT === 'ZZ790');
+  assert.deepEqual([r.AUTO_LIVE_DATE, r.AUTO_ARR_STATUS, r.AUTO_ARR_SCHED, r.AUTO_ARR_REVISED, r.AUTO_DEP_SCHED, r.AUTO_DEP_REVISED],
+    ['2026-10-06', 'EnRoute', '2026-10-06 10:00', '2026-10-06 10:25', '2026-10-06 12:00', '2026-10-06 12:40']);
+  assert.deepEqual([r.AUTO_ORIGIN, r.AUTO_DEST, r.AUTO_REG, r.AUTO_HEX, r.AUTO_AIRCRAFT, r.AUTO_GATE, r.AUTO_TERMINAL, r.AUTO_UPDATED_UTC, r.AUTO_CHECKED_AT],
+    ['XORG', 'XDST', 'ZS-ABC', 'abc123', 'Airbus A350-900', 'A7', 'A', '2026-10-06 08:25', '2026-10-06 08:02']);
+  assert.equal(r.ETA, '10:00'); // manual columns never touched
+  assert.ok(e.audit().some(a => a[1] === 'AERODATABOX' && /ZZ790 AUTO_ARR_REVISED$/.test(a[2]) && a[4] === '2026-10-06 10:25'));
+  assert.ok(!e.audit().some(a => /AUTO_CHECKED_AT|AUTO_HEX/.test(a[2]))); // freshness columns change silently
+  // same fixed time: not twice; next fixed time (11:00): read again, only the changes are audited
+  e.at('2026-10-06T08:40:00Z'); assert.match(e.ctx.adbTick(), /not due/);
+  const before = e.audit().length;
+  e.adb(fictiveBoard({ arrStatus: 'Arrived', arrAct: '10:21', model: 'Boeing 777-300ER' }));
+  e.at('2026-10-06T11:00:00Z'); e.ctx.adbTick();
+  const r2 = e.table('DEMO').find(x => x.FLIGHT === 'ZZ790');
+  assert.deepEqual([r2.AUTO_ARR_STATUS, r2.AUTO_ARR_ACTUAL, r2.AUTO_AIRCRAFT, r2.AUTO_AIRCRAFT_PREV], ['Arrived', '2026-10-06 10:21', 'Boeing 777-300ER', 'Airbus A350-900']);
+  assert.equal(e.audit().length - before, 3); // status, actual time, aircraft type
+  const usage = Object.fromEntries(e.sheets.ApiUsage.rows.slice(1).map(x => [x[0], x[1]]));
+  assert.deepEqual([usage.UNITS_USED, usage.CALLS, usage.MODE], ['4', '2', 'normal']);
+});
+
+test('AeroDataBox: cancelled flight written as a status only, ACTIVE never touched', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
+  e.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  e.adb(fictiveBoard({ depStatus: 'Canceled' }));
+  e.at('2026-10-06T08:00:00Z'); e.ctx.adbTick();
+  const r = e.table('DEMO').find(x => x.FLIGHT === 'ZZ790');
+  assert.equal(r.AUTO_DEP_STATUS, 'Canceled');
+  assert.equal(r.ACTIVE, '');
+});
+
+test('AeroDataBox: ranges schedule, one call per airport for several active units, never from the public URL', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
+  e.sheets.RULES.rows.push(['ACTIVE_UNITS', 'DEMO,COPY', ''], ['ADB_SCHEDULE', '00:00-12:00:30|12:00-24:00:60', '']);
+  e.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  e.sheets.COPY = null;
+  const copy = e.ctx.SpreadsheetApp.getActiveSpreadsheet().insertSheet('COPY');
+  copy.rows = [['FLIGHT', 'ETA', 'ETD', 'DAYS', 'FLIGHT_IN'], ['ZZ790', '10:00', '12:00', '1234567', 'ZZ789']];
+  e.sheets.RULES_COPY = null;
+  e.ctx.SpreadsheetApp.getActiveSpreadsheet().insertSheet('RULES_COPY').rows = [['KEY', 'VALUE'], ['AIRPORT_IATA', 'XXX', ''], ['AIRPORT_ICAO', 'XXXX', '']];
+  e.adb(fictiveBoard());
+  e.at('2026-10-06T08:00:00Z'); e.ctx.adbTick();
+  assert.equal(e.adbCalls.length, 1); // DEMO and COPY share the airport
+  assert.equal(e.table('COPY')[0].AUTO_ARR_REVISED, '2026-10-06 10:25');
+  e.at('2026-10-06T08:20:00Z'); e.ctx.adbTick(); assert.equal(e.adbCalls.length, 1); // every 30 min
+  e.at('2026-10-06T08:31:00Z'); e.ctx.adbTick(); assert.equal(e.adbCalls.length, 2);
+  e.ctx.doGet({ parameter: { cs: 'ZZC789', hex: 'abc123', u: 'DEMO' } });
+  assert.equal(e.adbCalls.length, 2);
+});
+
+test('AeroDataBox budget: economy above the planned pace, stopped before the cap', () => {
+  const e = makeEnv();
+  // 400 units, 2 per call, day 10 of 31 at noon: pace about 123 units
+  assert.equal(e.ctx.adbMode(100, 400, 2, 10, 31, 720).mode, 'normal');
+  const eco = e.ctx.adbMode(160, 400, 2, 10, 31, 720);
+  assert.equal(eco.mode, 'economy');
+  assert.ok(eco.minGapMin >= 60);
+  assert.equal(e.ctx.adbMode(391, 400, 2, 30, 31, 720).mode, 'stopped'); // reserve of 8 units (2 %)
+  assert.equal(e.ctx.adbMode(4990, 5000, 2, 30, 31, 0).mode, 'stopped');
+  // schedules
+  const fx = e.ctx.parseAdbSchedule('@00:00|04:00|08:00|11:00|14:00|18:00');
+  assert.deepEqual(Array.from(fx.fixed), [0, 240, 480, 660, 840, 1080]);
+  assert.equal(e.ctx.adbDue(fx, 485, 0, 1e9), true);
+  assert.equal(e.ctx.adbDue(fx, 485, 1e9 - 3 * 60000, 1e9), false); // read 3 min ago, after 08:00
+  assert.equal(e.ctx.adbDue(fx, 600, 0, 1e9), false); // 10:00: 08:00 is 2 h old
+  const rg = e.ctx.parseAdbSchedule('00:00-06:00:20|06:00-16:00:15|16:00-21:00:30|21:00-24:00:60');
+  assert.equal(rg.ranges.length, 4);
+  assert.equal(e.ctx.adbDue(rg, 1300, 1e9 - 59 * 60000, 1e9), false);
+  assert.equal(e.ctx.adbDue(rg, 1300, 1e9 - 60 * 60000, 1e9), true);
+  // stopped: no call at all
+  const s = makeEnv({ props: { AERODATABOX_KEY: 'k' } });
+  s.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  s.sheets.RULES.rows.push(['ADB_MONTHLY_UNITS', '3', '']);
+  s.adb(fictiveBoard());
+  s.at('2026-10-06T08:00:00Z');
+  assert.match(s.ctx.adbTick(), /not due \(stopped\)/);
+  assert.equal(s.adbCalls.length, 0);
+});
+
+test('nightly learning from the board reads: AUTO_DAYS only once 7 full days were read', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'k' } });
+  e.sheets.RULES.rows.push(['DEFAULT_UNIT', 'NEWU', ''], ['ADB_SCHEDULE', '@00:00|04:00|08:00|11:00|14:00|18:00', '']);
+  e.sheets.RULES_NEWU.rows.push(['AIRPORT_IATA', 'YYY', '']);
+  // ZZ100 departs 10:00 every day, inbound ZZ99 at 08:00
+  let day = '';
+  e.adb(() => {
+    const t = hm => ({ utc: day + ' ' + hm + 'Z' });
+    return { code: 200, body: { arrivals: [{ number: 'ZZ99', status: 'Arrived', arrival: { scheduledTime: t('08:00') }, aircraft: { model: 'Airbus A320' } }],
+      departures: [{ number: 'ZZ100', status: 'Departed', departure: { scheduledTime: t('10:00') }, aircraft: { model: 'Airbus A320' } }] } };
+  });
+  const runDay = d => { day = d; ['00:00', '04:00', '08:00', '11:00', '14:00', '18:00'].forEach(hm => { e.at(d + 'T' + hm + ':30Z'); e.ctx.adbTick(); }); };
+  ['2026-10-05', '2026-10-06', '2026-10-07'].forEach(runDay);
+  e.at('2026-10-08T02:00:00Z'); e.ctx.resolveDaily();
+  let r = e.table('NEWU').find(x => x.FLIGHT === 'ZZ0100');
+  assert.deepEqual([r.AUTO_STD, r.AUTO_STA, r.AUTO_DAYS], ['10:00', '08:00', '123']); // 3 days read: partial
+  assert.equal(e.table('NEWU').find(x => x.FLIGHT === 'QQ999').STATUS, ''); // not seen, partial: untouched
+  ['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11'].forEach(runDay);
+  e.at('2026-10-12T02:00:00Z'); e.ctx.resolveDaily();
+  r = e.table('NEWU').find(x => x.FLIGHT === 'ZZ0100');
+  assert.deepEqual([r.AUTO_DAYS, r.AUTO_FLIGHT_IN, r.STATUS], ['1234567', 'ZZ99', 'Resolved']); // 7 full days read
+  assert.equal(e.table('NEWU').find(x => x.FLIGHT === 'QQ999').STATUS, 'Unresolved');
+  assert.equal(e.adbCalls.length, 7 * 6); // the nightly runs called nothing
 });

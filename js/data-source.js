@@ -182,6 +182,18 @@
       if (o.ETA && !time(o.ETA) && auto('STA')) flag('info', o, 'Using AUTO_STA ' + auto('STA'));
       if (!eta && /D-1/i.test(auto('STA'))) flag('info', o, 'Arrives the day before (' + auto('STA') + '): day stop');
       const si = o.SI && /^\d+$/.test(o.SI) ? parseInt(o.SI, 10) : null;
+      // AeroDataBox live columns (relay): kept raw, read for today by the live runtime.
+      const adb = auto('LIVE_DATE') ? {
+        date: auto('LIVE_DATE'), arrStatus: auto('ARR_STATUS'), arrSched: auto('ARR_SCHED'), arrRevised: auto('ARR_REVISED'), arrActual: auto('ARR_ACTUAL'),
+        depStatus: auto('DEP_STATUS'), depSched: auto('DEP_SCHED'), depRevised: auto('DEP_REVISED'), depActual: auto('DEP_ACTUAL'),
+        origin: auto('ORIGIN'), dest: auto('DEST'), reg: auto('REG'), hex: auto('HEX'), aircraft: auto('AIRCRAFT'), prevAircraft: auto('AIRCRAFT_PREV'),
+        terminal: auto('TERMINAL'), gate: auto('GATE'), updatedUtc: auto('UPDATED_UTC'), checkedAt: auto('CHECKED_AT'),
+      } : null;
+      // Sheet time against the airline's scheduled time: equal = OK, else "No matching hours".
+      if (adb) [['ETA', eta, adb.arrSched], ['ETD', etd, adb.depSched]].forEach(([k, mine, theirs]) => {
+        const m = R.schedMatch(R.t2m(mine), R.t2m(String(theirs).slice(11, 16)));
+        if (m && m !== 'ok') flag('check', o, 'No matching hours: Sheet ' + k + ' ' + mine + ', AeroDataBox ' + String(theirs).slice(11, 16) + ' (' + adb.date + ')');
+      });
       rows.push({
         id: ctx.unit + ':' + (si !== null ? 'si' + si : 'r' + o._row) + ':' + n.norm,
         unit: ctx.unit, row: o._row, si, norm: n.norm,
@@ -189,7 +201,7 @@
         eta, etd, sealing: time(o.SEALING) || R.m2t(plan.seal), truck: time(o.TRUCK) || R.m2t(plan.truck),
         days, flightOut: o.FLIGHT_OUT || '', flightIn, callsigns: [...new Set(inCalls.concat(extra))], inGuess, outCallsigns: R.callsigns(o.FLIGHT_OUT || flightRaw, prefixes),
         originIcao: (o.ORIGIN_ICAO || auto('ORIGIN') || '').toUpperCase(), durationMin: o.DURATION_MIN ? parseInt(o.DURATION_MIN, 10) || null : null,
-        status, notes: o.NOTES || '', cancelled, aircraft: row.aircraft,
+        status, notes: o.NOTES || '', cancelled, aircraft: row.aircraft, adb,
         src: { eta: time(o.ETA) ? 'manual' : eta ? 'auto' : '', etd: time(o.ETD) ? 'manual' : etd ? 'auto' : '', sealing: plan.sealSource, truck: plan.truckSource,
           days: o.DAYS ? 'manual' : auto('DAYS') ? 'auto' : '', flightIn: o.FLIGHT_IN ? 'manual' : auto('FLIGHT_IN') ? 'auto' : '' },
         plan, input: row,
@@ -265,7 +277,7 @@
     const unit = cleanUnit(new URLSearchParams(env.search || '').get('unit')) || cleanUnit(cfg.DEFAULT_UNIT) || 'MAIN';
     const gids = cfg.SHEET_TAB_GIDS || {};
     let localFile, gvizDownUntil = 0;
-    const state = { unit, flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], airports: [], tabs: {}, health: [], stats: [], rules: null, syncedAt: null };
+    const state = { unit, flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], airports: [], apiUsage: {}, tabs: {}, health: [], stats: [], rules: null, syncedAt: null };
 
     // Tab definitions: name in the Sheet, validator (a gviz read of a missing tab returns the first tab).
     const TABS = {
@@ -275,6 +287,7 @@
       unitRules: { name: 'RULES_' + unit, valid: t => parseCSV(t).some(r => r.map(headKey).includes('KEY')), optional: true },
       boxTime: { name: 'BoxTime', valid: t => parseCSV(t).some(r => r.map(headKey).includes('OVERRIDE')), optional: true },
       airports: { name: 'Airports', valid: t => parseAirports(parseCSV(t)).length > 0, optional: true },
+      usage: { name: 'ApiUsage', valid: t => parseCSV(t).some(r => r.map(headKey).includes('KEY')), optional: true },
     };
 
     function gvizUrl(name) {
@@ -345,6 +358,7 @@
       state.settings = settings;
       state.boxTime = parseBoxTime(parseCSV(by.boxTime.text));
       state.airports = parseAirports(parseCSV(by.airports.text));
+      state.apiUsage = parseSettings(parseCSV(by.usage.text));
       const raw = readUnitRows(parseCSV(by.flights.text, true));
       const built = buildUnit(raw || [], { unit, defaultUnit: cleanUnit(cfg.DEFAULT_UNIT), airlines, settings, boxTime: state.boxTime, airports: state.airports });
       if (!raw && by.flights.text === '') built.health.unshift({ level: 'error', row: null, si: '', flight: '', msg: 'Tab "' + unit + '" could not be read (' + (by.flights.error || 'empty') + ')' });

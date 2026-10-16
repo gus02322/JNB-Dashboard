@@ -155,3 +155,19 @@ test('unit names are sanitised', () => {
   const ds = DS.create(cfg, { fetch: async () => ({ ok: false }), storage: memStorage(), search: '?unit=<script>' });
   assert.equal(ds.unit, 'DEMO');
 });
+
+test('AeroDataBox live columns: kept per row, "No matching hours" in Data health when the Sheet differs', () => {
+  const tab = [
+    'FLIGHT,ETA,ETD,DAYS,AUTO_LIVE_DATE,AUTO_ARR_SCHED,AUTO_ARR_REVISED,AUTO_DEP_SCHED,AUTO_DEP_STATUS,AUTO_CHECKED_AT',
+    'ZZ101,06:10,08:40,1234567,2026-10-06,2026-10-06 06:10,2026-10-06 06:40,2026-10-06 08:40,Expected,2026-10-06 04:00',
+    'ZZ109,07:00,09:00,1234567,2026-10-06,2026-10-06 07:15,,2026-10-06 09:00,Expected,2026-10-06 04:00',
+  ].join('\n');
+  const b = DS.buildUnit(DS.readUnitRows(DS.parseCSV(tab, true)), { unit: 'DEMO', defaultUnit: 'DEMO', airlines: DS.parseAirlines(DS.parseCSV(AIRLINES)), settings: {}, boxTime: [] });
+  const r = b.rows.find(x => x.flight === 'ZZ101');
+  assert.deepEqual([r.adb.date, r.adb.arrRevised, r.adb.depStatus, r.adb.checkedAt], ['2026-10-06', '2026-10-06 06:40', 'Expected', '2026-10-06 04:00']);
+  assert.equal(r.eta, '06:10'); // the Sheet time stays the plan
+  const msgs = b.health.filter(h => /No matching hours/.test(h.msg));
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0].msg, /^No matching hours: Sheet ETA 07:00, AeroDataBox 07:15 \(2026-10-06\)$/);
+  assert.equal(b.rows.find(x => x.flight === 'ZZ109').adb.depSched, '2026-10-06 09:00');
+});

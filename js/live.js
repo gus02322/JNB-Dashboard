@@ -1,8 +1,11 @@
 /*
- * Ops On Time live tracking runtime (behind the LIVE_ADSB feature flag).
- * Polls the Apps Script relay (never the tracking API directly), keeps one shared state for every
- * view, applies estimates only when they move by RECALC_THRESHOLD_MIN, logs every recalculation,
- * and falls back to scheduled times when the relay does not answer.
+ * Ops On Time live runtime (behind the LIVE_ADSB feature flag).
+ * Main source: the AeroDataBox times the relay writes to the unit tab (AUTO_ live columns), read with
+ * the Sheet: statuses, revised and actual times, cancellations, aircraft. They work without the relay.
+ * Bonus: live aircraft tracking (ADS-B, adsb.lol) through the Apps Script relay: position, landing and
+ * take-off detection. It never replaces an AeroDataBox time, except a landing or take-off AeroDataBox
+ * has not reported yet. Estimates apply only when they move by RECALC_THRESHOLD_MIN; every
+ * recalculation is logged.
  */
 (function (root) {
   const C = root.AngaLiveCore;
@@ -83,6 +86,7 @@
 
   async function tick() {
     const p = settings();
+    applyAdb();
     if (!p.relay) { status = { state: 'not-configured', at: null, error: 'LIVE_RELAY_URL is empty' }; notify(); return schedule(p.refreshSec); }
     const now = unitNow(), nm = nowMins(now), day = todayKey(now);
     ensureState(day);
@@ -121,7 +125,9 @@
     const cs = [...new Set(prio.flat())].slice(0, 30);
     const routeAsk = inbound.map(f => fs(f.id).callsign).filter(Boolean).filter(c => !(lastPayload && lastPayload.routes && lastPayload.routes[c]));
 
-    const qs = new URLSearchParams({ cs: cs.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
+    // Mode S hex given by AeroDataBox: the exact aircraft, looked up first.
+    const hexes = [...new Set(inbound.concat(flights.filter(f => outMap[f.id])).map(f => fs(f.id).airline && fs(f.id).airline.hex).filter(h => /^[0-9a-f]{6}$/.test(h || '')))].slice(0, 30);
+    const qs = new URLSearchParams({ cs: cs.join(','), hex: hexes.join(','), route: [...new Set(routeAsk)].join(','), u: data.unit || '' });
     if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) { qs.set('lat', p.lat); qs.set('lon', p.lon); qs.set('r', POINT_RADIUS_NM); }
 
     let payload;
@@ -168,6 +174,12 @@
         const cs = C.cleanCallsign(ac.flight) || c, route = routeStatus(routes[cs], p.airportIcao), est = C.liveEta(ac, nm, p);
         options.push({ ac, cs, route, est });
       }));
+      // The aircraft AeroDataBox assigned (hex): accepted under one of the candidates, or flying to the airport.
+      const hex = st.airline && st.airline.hex;
+      ((hex && payload.hex && payload.hex[hex]) || []).forEach(ac => {
+        const cs = C.cleanCallsign(ac.flight), est = C.liveEta(ac, nm, p);
+        if (cands.includes(cs) || (est.usable && !est.landed)) options.push({ ac, cs: cs || cands[0] || hex, route: cands.includes(cs) ? routeStatus(routes[cs], p.airportIcao) : 'ok', est, byHex: true });
+      });
       const score = o => (o.route === 'mismatch' ? 0 : !o.est.usable ? 1 : o.est.landed ? (st.airborneSeen && o.cs === st.callsign ? 4 : 2) : 3) + (o.cs === st.callsign ? 0.5 : 0);
       options.sort((a, b) => score(b) - score(a) || (a.ac.seen_pos ?? 999) - (b.ac.seen_pos ?? 999));
       const best = options[0];
@@ -207,7 +219,9 @@
       const cands = outMap[f.id];
       if (!cands) return;
       const st = fs(f.id);
-      const ac = pickAircraft(cands.map(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c))));
+      const hex = st.airline && st.airline.hex;
+      const ac = pickAircraft(cands.map(c => (payload.cs[c] || []).concat(point.filter(a => C.cleanCallsign(a.flight) === c)))
+        .concat([((hex && payload.hex && payload.hex[hex]) || []).filter(a => cands.includes(C.cleanCallsign(a.flight)))]));
       const row = { flight: f.flight + ' (departure)', candidates: cands, found: ac ? [C.cleanCallsign(ac.flight)] : [], reason: '' };
       if (!ac || typeof ac.lat !== 'number') { row.reason = st.departedAt !== undefined ? 'departed, out of live coverage' : 'not found'; outRows.push(row); return; }
       const dist = C.haversineNm(ac.lat, ac.lon, p.lat, p.lon);
@@ -233,6 +247,7 @@
     });
 
     seedFromRelay(payload, flights, now);
+    seedFromAdb(flights, now);
     flights.forEach(f => recalc(f, p, nm));
     diag = { rows: rows.concat(outRows), near: [...new Set(point.map(a => C.cleanCallsign(a.flight)).filter(Boolean))].sort(), at: Date.now() };
   }
@@ -254,66 +269,70 @@
         st.departedAt = C.t2m(dep.at) + (dep.day && dep.day > t.date ? 1440 : 0); st.depEstimated = !!dep.est;
         addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: dep.at, reason: 'take-off detected by the relay' + (dep.est ? ' (estimated)' : '') });
       }
-      // Airline revised times from the airport board (relay, budgeted reads): used only while
-      // live tracking has no ETA of its own, always labelled as the airline's estimate.
-      const prev = st.airline || {}, al = { at: '' };
-      const arrNums = [f.flightIn || f.flight].concat(f.flightIn ? [] : RU.neighbours(f.flight));
-      const a = pickEst(t.est, 'ARR', arrNums, C.t2m(f.eta));
-      if (a) {
-        al.at = a.at; al.etaStatus = a.st; al.etaKind = a.k; al.etaSched = C.t2m(a.s);
-        if (C.t2m(a.e) !== null) al.eta = C.t2m(a.e) + dayShift(a.s, C.t2m(f.eta));
-        if (C.t2m(a.a) !== null && /arriv|landed/i.test(a.st)) al.landed = C.t2m(a.a) + dayShift(a.s, C.t2m(f.eta));
+    });
+  }
+
+  // AeroDataBox times of today (AUTO_ live columns of the unit tab, read with the Sheet, no relay needed).
+  // st.airline: { eta, etd (actual, else revised, else scheduled), kinds, statuses, delays, cancelled,
+  // diverted, aircraft change, hex, gate, match with the Sheet times, checkedAt }.
+  function seedFromAdb(flights, now) {
+    const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const und = v => (v === null ? undefined : v);
+    flights.forEach(f => {
+      const st = fs(f.id), a = RU.adbDay(f.adb, iso(now));
+      if (!a) { delete st.airline; return; }
+      const prev = st.airline || {};
+      const al = {
+        at: a.checkedAt.slice(11, 16), checkedAt: a.checkedAt, updatedUtc: a.updatedUtc,
+        eta: und(a.arr.time), etaKind: a.arr.kind, etaStatus: a.arr.status, etaSched: und(a.arr.sched), arrDelay: a.arr.delay,
+        etd: und(a.dep.time), etdKind: a.dep.kind, etdStatus: a.dep.status, etdSched: und(a.dep.sched), depDelay: a.dep.delay,
+        landed: und(a.arr.actual), departed: und(a.dep.actual), cancelled: a.cancelled, diverted: a.diverted,
+        aircraftChange: a.aircraftChange, aircraft: a.aircraft, reg: a.reg, hex: a.hex, gate: a.gate, terminal: a.terminal, origin: a.origin, dest: a.dest,
+        match: { eta: RU.schedMatch(C.t2m(f.eta), a.arr.sched), etd: RU.schedMatch(C.t2m(f.etd), a.dep.sched) },
+      };
+      const why = (k, s0) => 'AeroDataBox ' + k + (s0 ? ' (' + s0 + ')' : '') + ', read ' + al.at;
+      if (al.eta !== undefined && al.eta !== prev.eta) addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.eta), reason: why(al.etaKind, al.etaStatus) });
+      if (al.etd !== undefined && al.etd !== prev.etd) addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.etd), reason: why(al.etdKind, al.etdStatus) });
+      if (al.cancelled && !prev.cancelled) addLog({ flight: f.flight, field: 'Flight', old: f.etd, new: al.diverted ? 'DIVERTED' : 'CANCELLED', reason: why('status', al.etdStatus || al.etaStatus) });
+      if (al.aircraftChange && !st.acAlerted) {
+        st.acAlerted = true;
+        addLog({ flight: f.flight, field: 'Aircraft', old: al.aircraftChange.from, new: al.aircraftChange.to, reason: 'AeroDataBox: aircraft change, check the galley configuration' });
+        tightQueue.push({ flight: f.flight, airline: f.airline, type: 'aircraft', lbl: 'Aircraft change', time: f.etd || f.eta || '', minsLeft: null,
+          badge: 'Aircraft change: ' + al.aircraftChange.from + ' to ' + al.aircraftChange.to });
       }
-      const d = pickEst(t.est, 'DEP', [f.flightOut || f.flight], C.t2m(f.etd));
-      if (d) {
-        al.at = al.at || d.at; al.etdStatus = d.st;
-        if (C.t2m(d.e) !== null) al.etd = C.t2m(d.e) + dayShift(d.s, C.t2m(f.etd));
-        if (C.t2m(d.a) !== null && /depart|airborne|enroute/i.test(d.st)) al.departed = C.t2m(d.a) + dayShift(d.s, C.t2m(f.etd));
+      st.airline = al;
+      // Landing and take-off reported by AeroDataBox are facts: they win over the live detection.
+      if (al.landed !== undefined && st.landedAt !== al.landed) {
+        st.landedAt = st.eta = al.landed; st.confidence = 'landed'; st.airborneSeen = true; st.landedBy = 'adb';
+        if (st.seenAt === undefined) st.seenAt = Date.now();
+        addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.landed), reason: 'landing reported by AeroDataBox' });
       }
-      if (a || d) {
-        if (al.eta !== undefined && al.eta !== prev.eta) addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.eta), reason: 'airline ' + (al.etaKind || 'estimate') + ' (airport board ' + al.at + ')' });
-        if (al.etd !== undefined && al.etd !== prev.etd) addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.etd), reason: 'airline estimate (airport board ' + al.at + ')' });
-        st.airline = al;
-        // Landing or take-off reported by the airport: a fact, used when live tracking missed it.
-        if (al.landed !== undefined && st.landedAt === undefined) {
-          st.landedAt = st.eta = al.landed; st.confidence = 'landed'; st.airborneSeen = true; st.seenAt = Date.now(); st.fromRelay = true;
-          addLog({ flight: f.flight, field: 'ETA', old: f.eta, new: C.m2t(al.landed), reason: 'landing reported by the airport board' });
-        }
-        if (al.departed !== undefined && st.departedAt === undefined) {
-          st.departedAt = al.departed; st.depEstimated = false;
-          addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.departed), reason: 'take-off reported by the airport board' });
-        }
+      if (al.departed !== undefined && st.departedAt !== al.departed) {
+        st.departedAt = al.departed; st.depEstimated = false; st.depBy = 'adb';
+        addLog({ flight: f.flightOut || f.flight, field: 'ETD', old: f.etd, new: C.m2t(al.departed), reason: 'take-off reported by AeroDataBox' });
       }
     });
   }
-  // Entry of the airport board closest to the planned time (within 3 h), for any of the numbers.
-  function pickEst(est, dir, nums, planM) {
-    if (!est || planM === null || planM === undefined) return null;
-    let best = null, gap = 181;
-    nums.forEach(n => {
-      const x = RU.normFlight(n);
-      (x && est[dir + '|' + x.norm] || []).forEach(e => {
-        const s = C.t2m(e.s);
-        if (s === null) return;
-        const g = Math.min(Math.abs(s - planM), Math.abs(s + 1440 - planM), Math.abs(s - 1440 - planM));
-        if (g < gap) { gap = g; best = e; }
-      });
-    });
-    return best;
-  }
-  // The board time belongs to the plan's day: keeps 23:50 vs 00:10 on the same side of midnight.
-  function dayShift(schedText, planM) {
-    const s = C.t2m(schedText);
-    return s === null || planM === null || planM === undefined ? 0 : s - planM > 720 ? -1440 : planM - s > 720 ? 1440 : 0;
+
+  // AeroDataBox applied on its own (every tick and every Sheet refresh), even when the relay is down.
+  function applyAdb() {
+    if (!data) return;
+    const p = settings(), now = unitNow(), nm = nowMins(now);
+    ensureState(todayKey(now));
+    const flights = todaysFlights(now);
+    seedFromAdb(flights, now);
+    flights.forEach(f => recalc(f, p, nm));
+    saveJSON(STATE_KEY, state);
   }
 
   // Plan after the live ETA (rule engine: TURN slides with the ETA, DAYSTOP keeps its plan),
   // applied only when a value moves by RECALC_THRESHOLD_MIN. Every change is logged.
   function recalc(f, p, nm) {
-    const st = fs(f.id), plan = f.plan;
-    const airlineOnly = st.eta === undefined && st.airline && st.airline.eta !== undefined;
-    const eta = airlineOnly ? st.airline.eta : st.eta;
-    if (eta === undefined || !plan) return;
+    const st = fs(f.id), plan = f.plan, al = st.airline;
+    // ETA used: a landing (AeroDataBox, else detected), else the AeroDataBox time, else the live estimate.
+    const src = st.landedAt !== undefined ? 'landed' : al && al.eta !== undefined ? 'airline' : 'live';
+    const eta = src === 'landed' ? st.landedAt : src === 'airline' ? al.eta : st.eta;
+    if (eta === undefined || !plan || (al && al.cancelled)) return;
     const rules = data.get().rules || RU.readRules(() => undefined);
     const res = RU.applyEta(plan, eta, rules);
     st.dayStop = plan.profile === 'DAYSTOP';
@@ -325,7 +344,10 @@
     }
     const prev = st.applied || { etd: plan.etd, seal: plan.seal, truck: plan.truck };
     const next = {};
-    const reason = (airlineOnly ? 'airline ETA ' : 'live ETA ') + C.m2t(eta) + (res.reason ? ' (' + res.reason + ')' : '');
+    const reason = (src === 'airline' ? 'AeroDataBox ETA ' : src === 'landed' ? 'landed ' : 'live ETA ') + C.m2t(eta) + (res.reason ? ' (' + res.reason + ')' : '');
+    // Projected ETD (inbound + MIN_ROTATION_MIN) later than the published ETD (AeroDataBox, else the Sheet): flagged.
+    const published = al && al.etd !== undefined ? al.etd : plan.etd;
+    st.projEtd = res.etd !== null && published !== null && published !== undefined && res.etd - published >= p.threshold ? res.etd : null;
     [['etd', 'ETD'], ['seal', 'Sealing'], ['truck', 'Truck Dep']].forEach(([k, label]) => {
       // A Sealing or Truck already past is done: a late live estimate never moves it afterwards.
       const r = k !== 'etd' && prev[k] !== null && prev[k] < nm ? { value: prev[k], changed: false } : C.applyWithThreshold(prev[k], res[k], p.threshold);
@@ -366,13 +388,16 @@
     if (!f) return null;
     if (sims[f.id]) return simView(f);
     if (demo && f.id === demo.id) return demo.view();
-    if (status.state !== 'ok' || !state) return null;
-    const st = state.flights[f.id];
-    if (st && st.eta === undefined && st.airline && st.airline.eta !== undefined) return airlineView(f, st);
-    if (!st || st.eta === undefined) {
-      if (!st) return null;
-      const v = { inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline };
-      if (st.departedAt !== undefined) Object.assign(v, { departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out });
+    const st = state && state.day === todayKey(unitNow()) ? state.flights[f.id] : null;
+    if (!st) return null;
+    // Relay down: only AeroDataBox (and what it reported) is shown; live tracking data is left aside.
+    const relayOk = status.state === 'ok', al = st.airline;
+    if (!relayOk && !al) return null;
+    const extra = { airline: al, cancelled: !!(al && al.cancelled), projEtd: st.projEtd || null };
+    if (st.landedAt === undefined && al && al.eta !== undefined) return Object.assign(airlineView(f, st, relayOk), extra);
+    if (st.eta === undefined || (!relayOk && st.landedBy !== 'adb')) {
+      const v = Object.assign({ inbound: relayOk ? inboundView(f, st) : null, depGround: relayOk && st.depState === 'ground' }, extra);
+      if (st.departedAt !== undefined && (relayOk || st.depBy === 'adb')) Object.assign(v, { departedAt: st.departedAt, depEstimated: st.depEstimated, out: relayOk ? st.out : null, depBy: st.depBy });
       return v.inbound || v.departedAt !== undefined || v.depGround || v.airline ? v : null;
     }
     const plan = f.plan || {}, a = st.applied || {}, p = settings();
@@ -387,19 +412,28 @@
       etd: a.etd, seal: a.seal, truck: a.truck, dayStop: st.dayStop, departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
       sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
       boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? st.eta - plan.eta : null,
-      inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline,
+      inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline, landedBy: st.landedBy, depBy: st.depBy,
+      cancelled: !!(st.airline && st.airline.cancelled), projEtd: st.projEtd || null,
     };
   }
 
-  // ETA from the airline (airport board) while live tracking has not seen the aircraft: level 'airline'.
-  function airlineView(f, st) {
-    const plan = f.plan || {}, a = st.applied || {}, al = st.airline;
+  // ETA from AeroDataBox (not landed yet): level 'airline'. Live tracking, when it sees the aircraft, adds
+  // its position as a bonus (adsb: { level, pos, seenAt, ageMin, dr }) without changing the ETA.
+  function airlineView(f, st, relayOk) {
+    const plan = f.plan || {}, a = st.applied || {}, al = st.airline, p = settings();
+    let adsb = null;
+    if (relayOk && st.eta !== undefined && st.seenAt !== undefined && st.pos) {
+      const lv = C.arrivalLevel(st, Date.now(), p), ageMin = (Date.now() - st.seenAt) / 60000;
+      adsb = { level: lv, pos: st.pos, seenAt: st.seenAt, ageMin, eta: st.eta,
+        dr: lv === 'lost' && Number.isFinite(p.lat) ? C.deadReckon(st.pos, { lat: p.lat, lon: p.lon }, st.eta, nowMins(unitNow()), ageMin, p) : null };
+    }
+    const departed = st.departedAt !== undefined && (relayOk || st.depBy === 'adb');
     return {
-      level: 'airline', airline: al, eta: al.eta, landedAt: undefined, landed: false,
-      etd: a.etd, seal: a.seal, truck: a.truck, dayStop: plan.profile === 'DAYSTOP', departedAt: st.departedAt, depEstimated: st.depEstimated, out: st.out,
+      level: 'airline', airline: al, adsb, eta: al.eta, landedAt: undefined, landed: false,
+      etd: a.etd, seal: a.seal, truck: a.truck, dayStop: plan.profile === 'DAYSTOP', departedAt: departed ? st.departedAt : undefined, depEstimated: st.depEstimated, out: relayOk ? st.out : null,
       sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
-      boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? al.eta - plan.eta : null,
-      inbound: inboundView(f, st), depGround: st.depState === 'ground',
+      boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: al.arrDelay !== null && al.arrDelay !== undefined ? al.arrDelay : plan.eta !== null && plan.eta !== undefined ? al.eta - plan.eta : null,
+      inbound: relayOk ? inboundView(f, st) : null, depGround: relayOk && st.depState === 'ground',
     };
   }
 
@@ -491,7 +525,11 @@
   function schedule(sec) { clearTimeout(timer); timer = setTimeout(tick, sec * 1000); }
 
   root.AngaLive = {
-    start(d, c) { data = d; cfg = c; status = { state: 'starting', at: null, error: null }; tick(); },
+    start(d, c) {
+      data = d; cfg = c; status = { state: 'starting', at: null, error: null };
+      if (data.onChange) data.onChange(() => { applyAdb(); notify(); });
+      tick();
+    },
     refreshNow() { clearTimeout(timer); tick(); },
     // A flight opened on screen is looked up first, right away (at most once a minute).
     focus(f) {

@@ -177,3 +177,38 @@ test('unit clock: offset of a fixed zone', () => {
   assert.equal(R.tzOffsetMin('Etc/GMT-2', Date.UTC(2026, 0, 1)), 120);
   assert.equal(R.tzOffsetMin('Not/AZone', Date.now()), null);
 });
+
+test('AeroDataBox day: actual, else revised, else scheduled; delay; other days ignored', () => {
+  const raw = { date: '2026-10-06', arrStatus: 'EnRoute', arrSched: '2026-10-06 16:15', arrRevised: '2026-10-06 16:55',
+    depStatus: 'Expected', depSched: '2026-10-06 19:10', depRevised: '', depActual: '' };
+  const a = R.adbDay(raw, '2026-10-06');
+  assert.deepEqual([a.arr.time, a.arr.kind, a.arr.delay], [16 * 60 + 55, 'revised', 40]);
+  assert.deepEqual([a.dep.time, a.dep.kind, a.dep.delay], [19 * 60 + 10, 'scheduled', 0]);
+  assert.equal(a.cancelled, false);
+  assert.equal(R.adbDay(raw, '2026-10-07'), null);
+  const landed = R.adbDay(Object.assign({}, raw, { arrActual: '2026-10-06 16:49' }), '2026-10-06');
+  assert.deepEqual([landed.arr.time, landed.arr.kind], [16 * 60 + 49, 'actual']);
+  // departure after midnight: minutes beyond 1440 on the operating day
+  const late = R.adbDay({ date: '2026-10-06', depSched: '2026-10-07 00:45' }, '2026-10-06');
+  assert.equal(late.dep.time, 1440 + 45);
+});
+
+test('AeroDataBox day: cancelled or diverted, aircraft change', () => {
+  const c = R.adbDay({ date: '2026-10-06', depStatus: 'Canceled', depSched: '2026-10-06 10:00' }, '2026-10-06');
+  assert.equal(c.cancelled, true);
+  const d = R.adbDay({ date: '2026-10-06', arrStatus: 'Diverted', depStatus: 'Expected' }, '2026-10-06');
+  assert.deepEqual([d.diverted, d.cancelled], [true, false]);
+  const x = R.adbDay({ date: '2026-10-06', aircraft: 'Boeing 777-300ER', prevAircraft: 'Airbus A350-900' }, '2026-10-06');
+  assert.deepEqual(x.aircraftChange, { from: 'Airbus A350-900', to: 'Boeing 777-300ER' });
+  assert.equal(R.adbDay({ date: '2026-10-06', aircraft: 'Airbus A350-900', prevAircraft: 'airbus a350 900' }, '2026-10-06').aircraftChange, null);
+});
+
+test('Sheet time against the airline schedule, freshness', () => {
+  assert.equal(R.schedMatch(975, 975), 'ok');
+  assert.deepEqual(R.schedMatch(975, 990), { sheet: 975, airline: 990, gap: 15 });
+  assert.equal(R.schedMatch(null, 990), null);
+  assert.equal(R.schedMatch(5, 1435).gap, -10);
+  const now = new Date(2026, 9, 6, 12, 30);
+  assert.equal(R.minutesSince('2026-10-06 08:00', now), 270);
+  assert.equal(R.minutesSince('', now), null);
+});
