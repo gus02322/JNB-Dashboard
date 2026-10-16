@@ -329,6 +329,15 @@ test('AeroDataBox: one FIDS call on the fixed schedule, live columns written, ch
   assert.deepEqual([usage.UNITS_USED, usage.CALLS, usage.MODE], ['4', '2', 'normal']);
 });
 
+test('AeroDataBox: a runway time before landing is an estimate, never an actual time', () => {
+  const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
+  e.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  e.adb(fictiveBoard({ arrStatus: 'Expected', arrAct: '10:11' }));
+  e.at('2026-10-06T08:00:00Z'); e.ctx.adbTick();
+  const r = e.table('DEMO').find(x => x.FLIGHT === 'ZZ790');
+  assert.deepEqual([r.AUTO_ARR_STATUS, r.AUTO_ARR_REVISED, r.AUTO_ARR_ACTUAL || ''], ['Expected', '2026-10-06 10:25', '']);
+});
+
 test('AeroDataBox: cancelled flight written as a status only, ACTIVE never touched', () => {
   const e = makeEnv({ props: { AERODATABOX_KEY: 'test-key' } });
   e.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
