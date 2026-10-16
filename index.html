@@ -160,6 +160,9 @@
 .view.active { display: flex; }
 #timeline-view { padding-top: calc(52px * var(--scale)); height: 100vh; overflow: hidden; }
 #tl-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; position: relative; }
+#now-track { position: fixed; right: 24px; bottom: 56px; z-index: 900; display: none; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--now-line); background: rgba(20,22,28,0.92); color: var(--now-line); font: 700 12px/1 var(--font-mono); letter-spacing: 1px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+#now-track.show { display: flex; }
+#now-track:hover { background: var(--now-line); color: #1a1200; }
 #tl-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
 #tl-scroll::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 3px; }
 #tl-inner { position: relative; }
@@ -2396,7 +2399,7 @@ setInterval(()=>{
   updateNowLine();
   const nl=document.getElementById('prod-now-line');if(nl){nl.style.top=(nowMins()*pxPerMin())+'px';const lbl=nl.querySelector('.now-label');if(lbl)lbl.textContent='NOW · '+fmtMins(nowMins());}
   const followCb=document.getElementById('follow-now');
-  if(followCb&&followCb.checked&&!isMobile()){
+  if(followCb&&followCb.checked&&!isMobile()&&!nowTrackPaused()){
     const tv=document.getElementById('timeline-view');
     if(tv&&tv.classList.contains('active')){const s=document.getElementById('tl-scroll');if(s)s.scrollTop=Math.max(0,nowMins()*pxPerMin()-220);}
     const pv=document.getElementById('production-view');
@@ -2418,6 +2421,23 @@ setInterval(fetchGSheet,CFG.SHEET_REFRESH_MS);
 function forceRefresh(){showToast('Refreshing now');fetchGSheet().then(()=>{if(liveOn())AngaLive.refreshNow();});}
 document.addEventListener('keydown',e=>{if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.key==='R'||e.key==='r')&&!/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||''))forceRefresh();});
 setTimeout(scrollToNow,600);
+// Follow NOW pauses as soon as someone scrolls the timeline by hand, so the whole day can be read.
+// The Now track button (or 30 min without touching the screen) goes back to now and follows it again.
+let nowTrackUntil=0;
+function nowTrackPaused(){return Date.now()<nowTrackUntil;}
+function pauseNowTrack(){if(!isToday(viewDate))return;nowTrackUntil=Date.now()+30*60000;document.getElementById('now-track').classList.add('show');}
+function resumeNowTrack(){
+  nowTrackUntil=0;document.getElementById('now-track').classList.remove('show');
+  const fc=document.getElementById('follow-now');if(fc&&!fc.checked){fc.checked=true;fc.dispatchEvent(new Event('change'));}
+  scrollToNow();
+  const pv=document.getElementById('production-view'),ps=document.getElementById('prod-tl-main');
+  if(pv&&pv.classList.contains('active')&&ps)ps.scrollTop=Math.max(0,nowMins()*pxPerMin()-220);
+}
+['tl-scroll','prod-tl-main'].forEach(id=>{const el=document.getElementById(id);if(!el)return;
+  ['wheel','touchmove'].forEach(ev=>el.addEventListener(ev,pauseNowTrack,{passive:true}));
+  el.addEventListener('mousedown',e=>{if(e.offsetX>=el.clientWidth)pauseNowTrack();}); // drag of the scroll bar
+  el.addEventListener('keydown',e=>{if(/^(Arrow|Page|Home|End| )/.test(e.key))pauseNowTrack();});});
+setInterval(()=>{if(nowTrackUntil&&!nowTrackPaused())resumeNowTrack();},30000);
 loadAlertSettings();
 loadBgTheme();
 initBgSwatches();
@@ -2428,5 +2448,6 @@ window.addEventListener('resize',()=>{
   if(pv&&pv.classList.contains('active'))buildProductionView();
 });
 </script>
+<button id="now-track" onclick="resumeNowTrack()" title="Go back to now and follow it">⏱ NOW TRACK</button>
 </body>
 </html>
