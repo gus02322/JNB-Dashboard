@@ -319,6 +319,9 @@ test('AeroDataBox: one FIDS call on the fixed schedule, live columns written, ch
   assert.ok(!e.audit().some(a => /AUTO_CHECKED_AT|AUTO_HEX/.test(a[2]))); // freshness columns change silently
   // same fixed time: not twice; next fixed time (11:00): read again, only the changes are audited
   e.at('2026-10-06T08:40:00Z'); assert.match(e.ctx.adbTick(), /not due/);
+  // a time trigger passes an event object: it never forces a read
+  e.at('2026-10-06T08:45:00Z'); assert.match(e.ctx.adbTick({ authMode: 'FULL', triggerUid: '1' }), /not due/);
+  assert.equal(e.adbCalls.length, 1);
   const before = e.audit().length;
   e.adb(fictiveBoard({ arrStatus: 'Arrived', arrAct: '10:21', model: 'Boeing 777-300ER' }));
   e.at('2026-10-06T11:00:00Z'); e.ctx.adbTick();

@@ -51,7 +51,7 @@ Réglages dans RULES (lisibles par tous, sans secret) :
 
 - **Heure du jour** : réelle, sinon révisée, sinon prévue par AeroDataBox (« Airline ETA / ETD »). L'heure du Sheet reste le plan et s'affiche à côté : « ✓ Sheet = airline 16:15 » ou « No matching hours: Sheet 16:15 · airline 16:30 » (aussi dans Data health).
 - **Retard** = révisée moins prévue, affiché sur les blocs (`+40`). Sealing, Truck et Box Time D glissent avec les règles TURN / DAYSTOP existantes.
-- **ETD projetée** = max(ETD prévue, arrivée de l'avion + `MIN_ROTATION_MIN`), signalée « Proj. HH:MM » si elle dépasse l'ETD publiée.
+- **ETD** : jamais déduite d'un retard à l'arrivée (strip and load, day stop). Seule l'ETD donnée par AeroDataBox compte ; si elle diffère du Sheet : « No matching · theoretical ETD changed: HH:MM ».
 - **Annulé ou dérouté** aujourd'hui : vol barré « Cancelled », alertes coupées, Box Time « Hold production ». Le lendemain, retour à la normale.
 - **Changement d'avion** : alerte « Aircraft change » (configuration galley).
 - **Fraîcheur** : « Updated HH:MM » par vol, en orange au-delà de `ADB_STALE_MIN` minutes.

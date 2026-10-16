@@ -672,6 +672,8 @@ function adbFetch(airport, date, half) {
 // it is due and the monthly budget (ADB_MONTHLY_UNITS) allows it. The answer is written to the AUTO_ live
 // columns of every active unit tab on that airport. Never called by the public URL.
 function adbTick(force) {
+  // A time trigger calls this with an event object: only the menu (true) forces a read.
+  force = force === true;
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return 'busy';
   try {
@@ -688,7 +690,7 @@ function adbTick(force) {
     airports.forEach(function (ap) {
       var last = toNum(PropertiesService.getScriptProperties().getProperty('ADB_LAST_' + ap.iata), 0);
       var due = force || (mode.mode !== 'stopped' && adbDue(plan.schedule, nowMin, last, now.getTime()) &&
-        (now.getTime() - last) / 60000 >= mode.minGapMin);
+        (now.getTime() - last) / 60000 >= Math.max(ADB_MIN_GAP_MIN, mode.minGapMin));
       if (!due) return;
       var res = adbFids(ap.iata, plan);
       called = true;
@@ -1025,6 +1027,7 @@ function coverageMinutes(markers) {
 /* ---------------- credit counter (ApiUsage tab, written by the relay) ---------------- */
 
 var USAGE_SHEET = 'ApiUsage';
+var ADB_MIN_GAP_MIN = 10;           // safety net: never two automatic reads of one airport less than 10 min apart
 function readUsage(ss, cfg, now) {
   var month = Utilities.formatDate(now, timeZone(cfg), 'yyyy-MM'), kv = readKv(ss.getSheetByName(USAGE_SHEET));
   var same = kv.MONTH === month;

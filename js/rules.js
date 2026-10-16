@@ -23,7 +23,6 @@
     ['WIDEBODY_TYPES', 'A330,A332,A333,A338,A339,A340,A343,A346,A350,A359,A35K,A380,A388,B744,B748,B763,B764,B772,B77L,B77W,B778,B779,B788,B789,B78X,747,767,777,787,MD11', 'Aircraft types treated as widebody (matched in the aircraft model)'],
     ['TRUCK_EXCEPTIONS', '', 'Per flight Truck rule: FLIGHT:ETA or ETD +/- minutes, separated by |'],
     ['SEAL_EXCEPTIONS', '', 'Per flight Sealing gap: FLIGHT:minutes before Truck, separated by |'],
-    ['MIN_ROTATION_MIN', '60', 'TURN: estimated ETD = max(STD, live ETA + this), minutes'],
     ['RECALC_THRESHOLD_MIN', '5', 'A live ETA moves the plan only when it differs by at least this many minutes'],
     ['TIGHT_SLOT_MIN', '30', 'Alert "Slot too tight" when a moved Sealing or Truck is less than this many minutes from now'],
     ['DAYSTOP_MARGIN_MIN', '60', 'DAYSTOP: alert when the live ETA leaves less than this many minutes before Truck'],
@@ -141,7 +140,7 @@
       sealToTruck: num('SEAL_TO_TRUCK_MIN'), sealToTruckWide: num('SEAL_TO_TRUCK_WIDE_MIN'),
       wideAirlines: new Set(listOf(raw('WIDEBODY_AIRLINES'))), wideTypes: listOf(raw('WIDEBODY_TYPES')),
       truckExc, sealExc,
-      minRotation: num('MIN_ROTATION_MIN'), threshold: num('RECALC_THRESHOLD_MIN'), tight: num('TIGHT_SLOT_MIN'),
+      threshold: num('RECALC_THRESHOLD_MIN'), tight: num('TIGHT_SLOT_MIN'),
       dayStopMargin: num('DAYSTOP_MARGIN_MIN'), healthGap: num('HEALTH_GAP_MIN'),
       box: {
         threshold: time('BOX_THRESHOLD_ETD'), dOffset: num('BOX_D_OFFSET_MIN'), d1Offset: num('BOX_D1_OFFSET_MIN'),
@@ -244,7 +243,7 @@
     out.moved = true;
     out.truck = plan.truck === null ? null : plan.truck + delay;
     out.seal = plan.seal === null ? null : plan.seal + delay;
-    out.etd = plan.etd === null ? null : Math.max(plan.etd, etaLive + R.minRotation);
+    // The ETD never moves with the arrival (strip and load, day stop): only the airline changes it.
     if (plan.box && plan.box.day === 'D') out.box = { day: 'D', m: plan.box.m + delay };
     else if (plan.box) { out.box = plan.box; out.d1Check = true; }
     out.reason = (delay > 0 ? 'delay +' : 'early ') + Math.round(delay) + ' min';

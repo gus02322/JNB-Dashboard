@@ -193,7 +193,9 @@
       // Sheet time against the airline's scheduled time: equal = OK, else "No matching hours".
       if (adb) [['ETA', eta, adb.arrSched], ['ETD', etd, adb.depSched]].forEach(([k, mine, theirs]) => {
         const m = R.schedMatch(R.t2m(mine), R.t2m(String(theirs).slice(11, 16)));
-        if (m && m !== 'ok') flag('check', o, 'No matching hours: Sheet ' + k + ' ' + mine + ', AeroDataBox ' + String(theirs).slice(11, 16) + ' (' + adb.date + ')');
+        if (m && m !== 'ok') flag('check', o, k === 'ETD'
+          ? 'No matching: theoretical ETD changed: ' + String(theirs).slice(11, 16) + ' (Sheet ' + mine + ', AeroDataBox ' + adb.date + ')'
+          : 'No matching hours: Sheet ' + k + ' ' + mine + ', AeroDataBox ' + String(theirs).slice(11, 16) + ' (' + adb.date + ')');
       });
       rows.push({
         id: ctx.unit + ':' + (si !== null ? 'si' + si : 'r' + o._row) + ':' + n.norm,

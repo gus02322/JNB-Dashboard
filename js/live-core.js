@@ -200,24 +200,7 @@
 
   /* ---------- recalculation ---------- */
 
-  // Estimated ETD and the Sealing / Truck times that follow it.
-  // A day stop (long scheduled ground time) keeps its ETD: a late arrival does not move it.
-  function estimateDeparture(row, etaLiveM, p) {
-    const sc = schedule(row);
-    if (sc.etd === null) return null;
-    const ground = sc.eta === null ? null : sc.etd - sc.eta;
-    const dayStop = ground !== null && ground >= p.dayStopMinGround;
-    let etd = sc.etd;
-    if (!dayStop && etaLiveM !== null && etaLiveM !== undefined) etd = Math.max(sc.etd, etaLiveM + p.minRotationMin);
-    const shift = etd - sc.etd;
-    return {
-      dayStop, ground,
-      etd,
-      seal: sc.seal === null ? null : sc.seal + shift, // keeps the flight's own ETD to Sealing gap
-      truck: sc.truck === null ? null : sc.truck + shift, // keeps the flight's own ETD to Truck gap
-      shift,
-    };
-  }
+
 
   // Applied value with a threshold: an estimate replaces the shown time only when it moved enough.
   function applyWithThreshold(applied, estimate, thresholdMin) {
@@ -231,6 +214,6 @@
   return {
     DAY, t2m, m2t, round5, schedule, boxSlotFormula, boxSettings,
     haversineNm, bearingDeg, callsignCandidates, KM_PER_NM, gcInterpolate, arrivalLevel, confidenceFromAge,
-    deadReckon, mapFraction, arrivalStatus, median, scheduleEstimate, theoreticalPosition, cleanCallsign, liveEta, estimateDeparture, applyWithThreshold,
+    deadReckon, mapFraction, arrivalStatus, median, scheduleEstimate, theoreticalPosition, cleanCallsign, liveEta, applyWithThreshold,
   };
 });

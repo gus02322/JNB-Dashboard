@@ -63,7 +63,7 @@ Jamais de plantage : chaque ligne est vérifiée et les problèmes sont listés 
 - **Sealing** = Truck - `SEAL_TO_TRUCK` de la ligne, sinon `SEAL_EXCEPTIONS` (ex. `UU344:45`), sinon widebody `SEAL_TO_TRUCK_WIDE_MIN` (120) ou `SEAL_TO_TRUCK_MIN` (60). Widebody : par type d'avion (`WIDEBODY_TYPES`, dans `AUTO_AIRCRAFT`) s'il est connu, sinon par compagnie (`WIDEBODY_AIRLINES`).
 - **Box Time** : ETD après `BOX_THRESHOLD_ETD` (17:00) : slot D = Sealing + `BOX_D_OFFSET_MIN` (-240). Sinon slot D-1 = ETD + `BOX_D1_OFFSET_MIN` (120), plafonné à `BOX_D1_CAP` (15:00), ou `BOX_D1_LATE_SLOT` (19:00) si l'ETD est après 15:00 et au plus 17:00. L'onglet BoxTime ne sert qu'à surcharger.
 - **Retard** (ETA live ou simulée) :
-  - TURN : à partir de `RECALC_THRESHOLD_MIN` (5 min) d'écart, Truck, Sealing et Box Time D glissent avec l'ETA ; ETD estimée = max(STD, ETA + `MIN_ROTATION_MIN`). Les slots D-1 ne bougent pas et sont marqués « Check ».
+  - TURN : à partir de `RECALC_THRESHOLD_MIN` (5 min) d'écart, Truck, Sealing et Box Time D glissent avec l'ETA . L'ETD ne bouge jamais avec l'arrivée (strip and load, day stop) : seule la compagnie la change (AeroDataBox). Les slots D-1 ne bougent pas et sont marqués « Check ».
   - DAYSTOP : rien ne bouge ; alerte « Day stop margin » si l'ETA laisse moins de `DAYSTOP_MARGIN_MIN` minutes avant Truck.
   - Heure recalculée à moins de `TIGHT_SLOT_MIN` minutes : alerte « Slot too tight ».
 - **Annulation** (`ACTIVE = CANCELLED` ou démo) : événements barrés « Cancelled », alertes coupées, Box Time « Hold production ».
@@ -74,7 +74,7 @@ Contrôle d'un onglet complet : télécharger les onglets en CSV puis `node tool
 ## Heures réelles : AeroDataBox (source principale)
 
 - Le relais lit le tableau des vols de l'aéroport (FIDS AeroDataBox, via API.Market) selon `ADB_SCHEDULE` et le budget `ADB_MONTHLY_UNITS`, et écrit les colonnes `AUTO_` du jour. Le dashboard les lit avec le Sheet : aucun appel en plus, et elles restent affichées même si le relais ne répond pas.
-- Heure du jour : réelle, sinon révisée, sinon prévue (« Airline ETA / ETD »). Retard (révisée moins prévue) sur les blocs, Sealing, Truck et Box Time D recalculés par les règles TURN / DAYSTOP, ETD projetée signalée si elle dépasse l'ETD publiée, annulation ou déroutement du jour (vol barré, sans toucher `ACTIVE`), alerte « Aircraft change », « Updated HH:MM » par vol (orange au-delà de `ADB_STALE_MIN`).
+- Heure du jour : réelle, sinon révisée, sinon prévue (« Airline ETA / ETD »). Retard (révisée moins prévue) sur les blocs, Sealing, Truck et Box Time D recalculés par les règles TURN / DAYSTOP, ETD jamais déduite de l'arrivée (« No matching · theoretical ETD changed: HH:MM » quand l'ETD AeroDataBox diffère du Sheet), annulation ou déroutement du jour (vol barré, sans toucher `ACTIVE`), alerte « Aircraft change », « Updated HH:MM » par vol (orange au-delà de `ADB_STALE_MIN`).
 - Crédits : Config > Sync and tracking et onglet `ApiUsage`. Notice : `apps-script/README.md`.
 
 ## Suivi des vols en direct, en bonus (flag `LIVE_ADSB`)

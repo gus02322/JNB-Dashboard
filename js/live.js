@@ -43,7 +43,7 @@
       before: g('ADSB_WINDOW_BEFORE_MIN', 60), after: Math.max(g('ADSB_WINDOW_AFTER_MIN', 600), 60),
       depLateMin: g('DEP_LATE_MIN', 15),
       approachMarginMin: g('APPROACH_MARGIN_MIN', 5), minGsKt: g('MIN_GS_KT', 150), maxPosAgeSec: g('MAX_POSITION_AGE_SEC', 120),
-      minRotationMin: g('MIN_ROTATION_MIN', 60), dayStopMinGround: g('DAY_STOP_MIN_GROUND', 360),
+      dayStopMinGround: g('DAY_STOP_MIN_GROUND', 360),
       threshold: g('RECALC_THRESHOLD_MIN', 5), tight: g('TIGHT_SLOT_MIN', 30),
       groundNm: g('LANDED_RADIUS_NM', GROUND_NM), finalNm: FINAL_NM, approachNm: APPROACH_NM,
       posFreshMult: g('POS_FRESH_MULT', 2), posMediumMin: g('POS_MEDIUM_MIN', 30), posLowMin: g('POS_LOW_MIN', 60),
@@ -345,9 +345,6 @@
     const prev = st.applied || { etd: plan.etd, seal: plan.seal, truck: plan.truck };
     const next = {};
     const reason = (src === 'airline' ? 'AeroDataBox ETA ' : src === 'landed' ? 'landed ' : 'live ETA ') + C.m2t(eta) + (res.reason ? ' (' + res.reason + ')' : '');
-    // Projected ETD (inbound + MIN_ROTATION_MIN) later than the published ETD (AeroDataBox, else the Sheet): flagged.
-    const published = al && al.etd !== undefined ? al.etd : plan.etd;
-    st.projEtd = res.etd !== null && published !== null && published !== undefined && res.etd - published >= p.threshold ? res.etd : null;
     [['etd', 'ETD'], ['seal', 'Sealing'], ['truck', 'Truck Dep']].forEach(([k, label]) => {
       // A Sealing or Truck already past is done: a late live estimate never moves it afterwards.
       const r = k !== 'etd' && prev[k] !== null && prev[k] < nm ? { value: prev[k], changed: false } : C.applyWithThreshold(prev[k], res[k], p.threshold);
@@ -393,7 +390,7 @@
     // Relay down: only AeroDataBox (and what it reported) is shown; live tracking data is left aside.
     const relayOk = status.state === 'ok', al = st.airline;
     if (!relayOk && !al) return null;
-    const extra = { airline: al, cancelled: !!(al && al.cancelled), projEtd: st.projEtd || null };
+    const extra = { airline: al, cancelled: !!(al && al.cancelled) };
     if (st.landedAt === undefined && al && al.eta !== undefined) return Object.assign(airlineView(f, st, relayOk), extra);
     if (st.eta === undefined || (!relayOk && st.landedBy !== 'adb')) {
       const v = Object.assign({ inbound: relayOk ? inboundView(f, st) : null, depGround: relayOk && st.depState === 'ground' }, extra);
@@ -413,7 +410,7 @@
       sealAuto: a.seal !== undefined && a.seal !== plan.seal, truckAuto: a.truck !== undefined && a.truck !== plan.truck, etdAuto: a.etd !== undefined && a.etd !== plan.etd,
       boxShift: st.boxShift || 0, d1Check: !!st.d1Check, delay: plan.eta !== null && plan.eta !== undefined ? st.eta - plan.eta : null,
       inbound: inboundView(f, st), depGround: st.depState === 'ground', airline: st.airline, landedBy: st.landedBy, depBy: st.depBy,
-      cancelled: !!(st.airline && st.airline.cancelled), projEtd: st.projEtd || null,
+      cancelled: !!(st.airline && st.airline.cancelled),
     };
   }
 

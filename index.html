@@ -1248,7 +1248,7 @@ function todayEvents(){
         const lostE=a&&(L.level==='lost'||L.level==='airline'),late=dep||cx?null:depLate(f,L);
         const al=L&&L.airline;
         evs.push({...b,late,depGround:!!(L&&L.depGround),key:f.id+'_ed',time:dep?m2t(L.departedAt):alE?m2t(L.airline.etd):a?m2t(L.etd):f.etd,sched:f.etd,auto:sim&&a,live:sim?null:dep?'dep':alE?'airline':lostE?'etdest':a?'etd':null,type:'etd',lbl:'ETD',tc:'type-etd',
-          delay:alE?al.depDelay:null,by:dep?L.depBy:null,acChange:!cx&&al?al.aircraftChange:null,projEtd:!cx&&!dep&&L&&L.projEtd?m2t(L.projEtd):null});
+          delay:alE?al.depDelay:null,by:dep?L.depBy:null,acChange:!cx&&al?al.aircraftChange:null});
       }
     }
     if(f.days.includes(prevDay)&&sc.nextDayEtd&&f.etd&&activeFilters.etd)
@@ -1289,9 +1289,9 @@ function evLabel(ev){
   if(ev.live==='etd')return'ETD <span class="st-chip st-live">Live</span>';
   if(ev.live==='etdest')return'ETD <span class="st-chip st-estimated">Estimated</span>';
   const ac=ev.acChange?' <span class="st-chip st-delayed" title="Aircraft change: '+esc(ev.acChange.from)+' to '+esc(ev.acChange.to)+' (galley configuration)">Aircraft change</span>':'';
-  const pj=ev.projEtd?' <span class="st-chip st-delayed" title="Inbound arrival plus the minimum rotation is later than the published ETD">Proj. '+ev.projEtd+'</span>':'';
+  const pj=ev.type==='etd'&&ev.live==='airline'&&ev.time!==ev.sched?' <span class="st-chip st-delayed" title="The airline ETD (AeroDataBox) differs from the Sheet">ETD changed</span>':'';
   if(ev.live==='dep')return'Departed <span class="st-chip st-live">'+(ev.by==='adb'?'Reported':'Live')+'</span>'+ac;
-  if(ev.live==='airline')return ev.lbl+' <span class="st-chip st-estimated" title="Airline time from AeroDataBox">Airline</span>'+ac+pj;
+  if(ev.live==='airline')return ev.lbl+(pj?'':' <span class="st-chip st-estimated" title="Airline time from AeroDataBox">Airline</span>')+ac+pj;
   if(ev.late)return'ETD <span class="st-chip st-delayed" title="Not seen airborne by live tracking">Not airborne +'+ev.late+'m</span>';
   if(ev.type==='etd'&&ev.depGround)return'ETD <span class="st-chip st-scheduled">At the gate</span>'+ac+pj;
   if(ac||pj)return ev.lbl+ac+pj;
@@ -2137,10 +2137,12 @@ function renderFlightView(){
   // Sheet time against the airline's scheduled time (AeroDataBox): OK, or "No matching hours".
   const al=L&&!L.simulated?L.airline:null,thr=AngaData.setting('RECALC_THRESHOLD_MIN',5);
   const cmp=(k,sched,kind,delay)=>{if(!al)return undefined;const mt=al.match&&al.match[k];
+    // ETD: never derived from the arrival; when the airline ETD differs from the Sheet, it is the theoretical ETD that changed.
+    if(k==='etd'&&al.etd!==undefined&&sched!==null&&AngaRules.diff(al.etd,sched)!==0)return'<span class="fv-nomatch" title="The airline (AeroDataBox) gives another departure time than the Sheet">No matching · theoretical ETD changed: '+m2t(al.etd)+'</span> · Sheet '+m2t(sched)+(kind?' · '+kind:'');
     const base=mt==='ok'?'<span class="fv-ok" title="Sheet time equals the airline scheduled time">✓ Sheet = airline '+m2t(sched)+'</span>':mt?'<span class="fv-nomatch" title="Check the Sheet or the airline schedule">No matching hours: Sheet '+m2t(mt.sheet)+' · airline '+m2t(mt.airline)+'</span>':'Sheet '+(sched===null?'-':m2t(sched));
     return base+(delay!==null&&delay!==undefined&&Math.abs(delay)>=thr?' · <b>'+(delay>0?'+':'')+delay+' min</b>':'')+(kind?' · '+kind:'');};
   const etaSub=cmp('eta',sc.eta,al&&al.etaKind,al&&al.arrDelay),etdSub=cmp('etd',sc.etd,al&&al.etdKind,al&&al.depDelay);
-  const projB=L&&L.projEtd&&!cx?' <span class="gap-badge" title="Inbound arrival plus the minimum rotation is later than the published ETD">Proj. '+m2t(L.projEtd)+'</span>':'';
+  const projB='';
   const cards=`<div class="fv-cards${cx?' fv-cancelled':''}">
     ${card('#4dffb4','ETA',t.eta,sc.eta,etaB,etaSub)}
     ${card('#ffaa44','Sealing',t.seal,sc.seal,L&&L.sealAuto?autoB:'')}
