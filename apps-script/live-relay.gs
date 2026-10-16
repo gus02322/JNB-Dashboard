@@ -844,10 +844,14 @@ function fidsMovements(json, tz) {
       var here = x[k[2]] || x.movement || {}, other = x[k[3]] || (x.movement && !x[k[2]] ? x.movement : {}) || {};
       var otherAp = (other.airport || (x.movement && x.movement.airport) || {});
       var ac = x.aircraft || {};
+      // runwayTime can be an estimate before the movement happened: it is an actual time only once the
+      // status says the aircraft landed (arrival) or left (departure); before that it counts as revised.
+      var status = String(x.status || ''), runway = adbTime(here.runwayTime || here.actualTime, tz);
+      var done = k[1] === 'ARR' ? /arrived|landed/i.test(status) : /departed|enroute|en route|airborne|arrived|landed/i.test(status);
       out.push({
-        dir: k[1], number: n.norm, status: String(x.status || ''),
-        sched: adbTime(here.scheduledTime, tz), revised: adbTime(here.revisedTime || here.predictedTime, tz),
-        actual: adbTime(here.runwayTime || here.actualTime, tz),
+        dir: k[1], number: n.norm, status: status,
+        sched: adbTime(here.scheduledTime, tz), revised: adbTime(here.revisedTime || here.predictedTime, tz) || (done ? '' : runway),
+        actual: done ? runway : '',
         terminal: String(here.terminal || ''), gate: String(here.gate || ''),
         other: String(otherAp.icao || otherAp.iata || '').toUpperCase(),
         reg: String(ac.reg || '').toUpperCase(), hex: String(ac.modeS || '').toLowerCase(), model: String(ac.model || ''),
