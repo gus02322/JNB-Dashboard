@@ -155,3 +155,48 @@ test('unit names are sanitised', () => {
   const ds = DS.create(cfg, { fetch: async () => ({ ok: false }), storage: memStorage(), search: '?unit=<script>' });
   assert.equal(ds.unit, 'DEMO');
 });
+
+test('AeroDataBox live columns: kept per row, "No matching hours" in Data health when the Sheet differs', () => {
+  const tab = [
+    'FLIGHT,ETA,ETD,DAYS,AUTO_LIVE_DATE,AUTO_ARR_SCHED,AUTO_ARR_REVISED,AUTO_DEP_SCHED,AUTO_DEP_STATUS,AUTO_CHECKED_AT',
+    'ZZ101,06:10,08:40,1234567,2026-10-06,2026-10-06 06:10,2026-10-06 06:40,2026-10-06 08:40,Expected,2026-10-06 04:00',
+    'ZZ109,07:00,09:00,1234567,2026-10-06,2026-10-06 07:15,,2026-10-06 09:00,Expected,2026-10-06 04:00',
+  ].join('\n');
+  const b = DS.buildUnit(DS.readUnitRows(DS.parseCSV(tab, true)), { unit: 'DEMO', defaultUnit: 'DEMO', airlines: DS.parseAirlines(DS.parseCSV(AIRLINES)), settings: {}, boxTime: [] });
+  const r = b.rows.find(x => x.flight === 'ZZ101');
+  assert.deepEqual([r.adb.date, r.adb.arrRevised, r.adb.depStatus, r.adb.checkedAt], ['2026-10-06', '2026-10-06 06:40', 'Expected', '2026-10-06 04:00']);
+  assert.equal(r.eta, '06:10'); // the Sheet time stays the plan
+  const msgs = b.health.filter(h => /No matching hours/.test(h.msg));
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0].msg, /^No matching hours: Sheet ETA 07:00, AeroDataBox 07:15 \(2026-10-06\)$/);
+  assert.equal(b.rows.find(x => x.flight === 'ZZ109').adb.depSched, '2026-10-06 09:00');
+});
+
+test('unit settings: AIRPORT_IATA alone takes the airport from the Airports tab, never the global one', () => {
+  const airports = DS.parseAirports(DS.parseCSV('ICAO,IATA,NAME,LAT,LON\nXAAA,AAA,Demo A,-10.5,20.25\nXBBB,BBB,Demo B,1,2'));
+  const base = { AIRPORT_ICAO: 'XBBB', AIRPORT_LAT: '1', AIRPORT_LON: '2', TIMEZONE: 'UTC' };
+  const s = DS.unitSettings(base, { AIRPORT_IATA: 'aaa' }, airports);
+  assert.deepEqual([s.AIRPORT_ICAO, s.AIRPORT_LAT, s.AIRPORT_LON, s.TIMEZONE], ['XAAA', '-10.5', '20.25', 'UTC']);
+  const unknown = DS.unitSettings(base, { AIRPORT_IATA: 'ZZZ' }, airports);
+  assert.equal(unknown.AIRPORT_ICAO, undefined); // not guessed
+  assert.equal(DS.unitSettings(base, { AIRPORT_IATA: 'AAA', AIRPORT_ICAO: 'XCCC' }, airports).AIRPORT_ICAO, 'XCCC');
+  assert.equal(DS.unitSettings(base, {}, airports).AIRPORT_ICAO, 'XBBB');
+});
+
+test('active unit chosen in the Sheet: the screen switches to it unless ?unit= is given', async () => {
+  const store = new Map();
+  const env = (search) => ({
+    search, storage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
+    fetch: async (url) => {
+      const name = decodeURIComponent((/sheet=([^&]+)/.exec(url) || [])[1] || '');
+      const tabs = { RULES: 'KEY,VALUE\nACTIVE_UNITS,BETA', AAA: 'FLIGHT\nZZ1', BETA: 'FLIGHT\nZZ2' };
+      return { ok: true, text: async () => tabs[name] || '' };
+    },
+  });
+  const cfg = { SHEET_ID: 'x', DEFAULT_UNIT: 'AAA', SHEET_TAB_GIDS: {} };
+  const a = DS.create(cfg, env(''));
+  assert.equal(a.unit, 'AAA');
+  assert.equal((await a.refresh()).switchTo, 'BETA');
+  assert.equal(DS.create(cfg, env('')).unit, 'BETA'); // remembered after the reload
+  assert.equal((await DS.create(cfg, env('?unit=AAA')).refresh()).switchTo, ''); // explicit address wins
+});
