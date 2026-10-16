@@ -1868,6 +1868,7 @@ function applyDataState(st){
 function fetchGSheet(){
   setSyncStatus('loading','Syncing...');
   return AngaData.refresh().then(function(st){
+    if(st.switchTo){showToast('Active unit changed in the Sheet: '+st.switchTo);setTimeout(()=>location.reload(),1500);return;}
     applyDataState(st);
     const t=st.tabs.flights,detail=syncDetail(st);
     if(t.source==='sheet'){
@@ -2332,6 +2333,7 @@ function renderUnitPanels(){
     <dt>Schedules</dt><dd>${cnt('Resolved')} resolved · ${cnt('Manual override')} manual · ${cnt('Unresolved')} unresolved</dd>
     <dt>AeroDataBox</dt><dd>${(u=>u.MONTH?esc(u.UNITS_USED||0)+' / '+esc(u.MONTHLY_UNITS||'?')+' units this month ('+esc(u.CALLS||0)+' calls) · mode <b class="adb-mode-'+esc(u.MODE)+'">'+esc(u.MODE||'normal')+'</b> · last call '+esc(u.LAST_CALL_AT||'never')+(u.LAST_RESULT?' · '+esc(u.LAST_RESULT):''):'no call yet (ApiUsage tab written by the relay)')(st.apiUsage||{})}</dd>
     <dt>AeroDataBox schedule</dt><dd>${esc(g('ADB_SCHEDULE','@00:00|04:00|08:00|11:00|14:00|18:00'))} · ${esc(g('ADB_UNITS_PER_CALL','2'))} units per call</dd></dl>
+    <div style="margin-top:8px"><button class="cfg-link" onclick="forceRefresh()" title="Reloads the Sheet (with the last AeroDataBox times) and live tracking now. Shortcut: Shift + R. AeroDataBox itself is read by the relay on its schedule, or from the Sheet menu Ops On Time > Read AeroDataBox now.">↻ Refresh now</button></div>
     <div class="cfg-table-wrap" style="margin-top:8px;max-height:200px"><table class="cfg-table"><tr><th>Tab</th><th>Source</th><th>Error</th></tr>${tabs}</table></div>`;
   const lv={error:0,warn:0,check:0,info:0};st.health.forEach(h=>lv[h.level]++);
   document.getElementById('cfg-health').innerHTML=`<div>${Object.entries(lv).map(([k,n])=>`<span class="hl-count hl-${k}">${n} ${k}</span>`).join('')}</div>
@@ -2412,6 +2414,9 @@ setInterval(()=>{
   if(n.getHours()===3&&n.getMinutes()>=30&&n.getMinutes()<35&&navigator.onLine&&!document.querySelector('#fv-overlay.show,#demo-panel.show')&&!autoDemo&&performance.now()>3600e3)location.reload();
 },60000);
 setInterval(fetchGSheet,CFG.SHEET_REFRESH_MS);
+// Hidden refresh: Shift + R (or Config > Refresh now). Reloads the Sheet and live tracking, never calls AeroDataBox.
+function forceRefresh(){showToast('Refreshing now');fetchGSheet().then(()=>{if(liveOn())AngaLive.refreshNow();});}
+document.addEventListener('keydown',e=>{if(e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.key==='R'||e.key==='r')&&!/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||''))forceRefresh();});
 setTimeout(scrollToNow,600);
 loadAlertSettings();
 loadBgTheme();

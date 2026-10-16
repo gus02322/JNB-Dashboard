@@ -171,3 +171,32 @@ test('AeroDataBox live columns: kept per row, "No matching hours" in Data health
   assert.match(msgs[0].msg, /^No matching hours: Sheet ETA 07:00, AeroDataBox 07:15 \(2026-10-06\)$/);
   assert.equal(b.rows.find(x => x.flight === 'ZZ109').adb.depSched, '2026-10-06 09:00');
 });
+
+test('unit settings: AIRPORT_IATA alone takes the airport from the Airports tab, never the global one', () => {
+  const airports = DS.parseAirports(DS.parseCSV('ICAO,IATA,NAME,LAT,LON\nXAAA,AAA,Demo A,-10.5,20.25\nXBBB,BBB,Demo B,1,2'));
+  const base = { AIRPORT_ICAO: 'XBBB', AIRPORT_LAT: '1', AIRPORT_LON: '2', TIMEZONE: 'UTC' };
+  const s = DS.unitSettings(base, { AIRPORT_IATA: 'aaa' }, airports);
+  assert.deepEqual([s.AIRPORT_ICAO, s.AIRPORT_LAT, s.AIRPORT_LON, s.TIMEZONE], ['XAAA', '-10.5', '20.25', 'UTC']);
+  const unknown = DS.unitSettings(base, { AIRPORT_IATA: 'ZZZ' }, airports);
+  assert.equal(unknown.AIRPORT_ICAO, undefined); // not guessed
+  assert.equal(DS.unitSettings(base, { AIRPORT_IATA: 'AAA', AIRPORT_ICAO: 'XCCC' }, airports).AIRPORT_ICAO, 'XCCC');
+  assert.equal(DS.unitSettings(base, {}, airports).AIRPORT_ICAO, 'XBBB');
+});
+
+test('active unit chosen in the Sheet: the screen switches to it unless ?unit= is given', async () => {
+  const store = new Map();
+  const env = (search) => ({
+    search, storage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
+    fetch: async (url) => {
+      const name = decodeURIComponent((/sheet=([^&]+)/.exec(url) || [])[1] || '');
+      const tabs = { RULES: 'KEY,VALUE\nACTIVE_UNITS,BETA', AAA: 'FLIGHT\nZZ1', BETA: 'FLIGHT\nZZ2' };
+      return { ok: true, text: async () => tabs[name] || '' };
+    },
+  });
+  const cfg = { SHEET_ID: 'x', DEFAULT_UNIT: 'AAA', SHEET_TAB_GIDS: {} };
+  const a = DS.create(cfg, env(''));
+  assert.equal(a.unit, 'AAA');
+  assert.equal((await a.refresh()).switchTo, 'BETA');
+  assert.equal(DS.create(cfg, env('')).unit, 'BETA'); // remembered after the reload
+  assert.equal((await DS.create(cfg, env('?unit=AAA')).refresh()).switchTo, ''); // explicit address wins
+});

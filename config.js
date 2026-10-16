@@ -12,7 +12,7 @@
     CONTACT_EMAIL: 'TODO@example.com', // TODO: real contact address
     SITE_URL: 'https://example.com',   // TODO: real public URL
 
-    // The Sheet: one tab per unit (JNB, CPT...), chosen with ?unit=<TAB>. Read by tab name (gviz CSV,
+    // The Sheet: one tab per unit (JNB, CLIENT_1...). Unit shown: ?unit=<TAB>, else ACTIVE_UNITS of the RULES tab. Read by tab name (gviz CSV,
     // needs "Anyone with the link: Viewer"), then from the published CSV with the gid below.
     SHEET_ID: '1y9gpbgaqLb1ktilolWX7XbwCyu47obmf0NH11m0PscU',
     DEFAULT_UNIT: 'JNB',
@@ -20,9 +20,9 @@
     SHEET_BASE_URL: SHEET_BASE,
     // gid of the known tabs, used when the read by name fails. A new tab works by name only.
     SHEET_TAB_GIDS: {
-      JNB: '0', CPT: '2001', DUR: '2002', AIRCHEFS_DEMO: '2003', DEMO_BLANK: '2004',
-      Airlines: '1001', RULES: '1002', BoxTime: '1003', Airports: '2200',
-      RULES_JNB: '2101', RULES_CPT: '2102', RULES_DUR: '2103', RULES_AIRCHEFS_DEMO: '2104',
+      JNB: '0', CLIENT_1: '2011', CLIENT_2: '2012', CLIENT_3: '2013',
+      Airlines: '1001', RULES: '1002', BoxTime: '1003', Airports: '2200', ApiUsage: '2300',
+      RULES_JNB: '2101', RULES_CLIENT_1: '2111', RULES_CLIENT_2: '2112', RULES_CLIENT_3: '2113',
     },
     SHEET_REFRESH_MS: 5 * 60 * 1000,
 

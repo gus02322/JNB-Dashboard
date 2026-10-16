@@ -24,17 +24,23 @@ Le Sheet est la seule source de vérité. **Tout ce qu'il contient est lisible p
 
 | Onglet | Contenu |
 | --- | --- |
-| `README` | Mode d'emploi court. |
-| `JNB`, `CPT`, `DUR`, `AIRCHEFS_DEMO`... | Un onglet par unité, choisi par `?unit=<NOM>` dans l'adresse (défaut `DEFAULT_UNIT`, JNB). |
-| `DEMO_BLANK` | Modèle vide (seulement `FLIGHT`) à dupliquer pour un prospect. |
-| `RULES` | Toutes les règles et réglages (`KEY, VALUE, DESCRIPTION`). |
-| `RULES_<UNIT>` | Surcharge par unité : `AIRPORT_ICAO`, `AIRPORT_LAT`, `AIRPORT_LON`, `TIMEZONE`, `UNIT_LABEL`, et n'importe quelle clé de RULES. |
+| `README` | Mode d'emploi (onglet bleu, en premier). |
+| `JNB`, `CLIENT_1`, `CLIENT_2`, `CLIENT_3` | Un onglet par unité (onglets verts). Les `CLIENT_` sont vides, prêts pour un prospect ou un nouveau client. |
+| `RULES` | Toutes les règles et réglages (`KEY, VALUE, DESCRIPTION`). En tête, la cellule jaune `ACTIVE_UNITS` (liste déroulante) choisit l'unité active. |
+| `RULES_<UNIT>` | Par unité : `AIRPORT_IATA` (suffit si l'aéroport est dans l'onglet `Airports`), `TIMEZONE`, `UNIT_LABEL`, et n'importe quelle clé de RULES. |
 | `Airlines` | `NAME, COLOR, IATA, ICAO, DEFAULT_PROFILE, NOTES`. |
 | `BoxTime` | Surcharges facultatives : `SI, FLIGHT, DAY, OVERRIDE, UNIT`. Sans ligne, la règle donne le slot. |
 | `Airports` | `ICAO, IATA, NAME, LAT, LON` : position théorique et code IATA de l'aéroport si `AIRPORT_IATA` manque. |
 | `Audit` | Chaque changement automatique : `DATE, SOURCE, KEY, OLD, NEW` (source `AERODATABOX` pour les heures et statuts). |
 | `ApiUsage` | Compteur de crédits AeroDataBox du mois (écrit par le relais, affiché dans Config). |
 | `History`, `Departures`, `ScheduleCache` | Écrits par le relais (atterrissages, décollages ADS-B ; lectures AeroDataBox des 9 derniers jours). |
+| `ARCHIVE_...` | Anciens onglets (CPT, DUR, AIRCHEFS_DEMO, DEMO_BLANK, Feuille 2 et 3), masqués, plus lus. |
+
+Code couleur : bleu = mode d'emploi, vert = unités à remplir, orange = réglages, gris masqué = écrit par le relais. Dans un onglet d'unité, colonnes blanches = saisie, colonnes grises (`AUTO_*`, `STATUS`) = remplies par le relais, protégées en simple avertissement.
+
+### Choisir l'unité active
+
+Une seule cellule : **RULES > `ACTIVE_UNITS`** (liste déroulante). Mettre `JNB` ou `CLIENT_1`... Les écrans du dashboard passent sur cette unité à leur prochaine actualisation (5 min au plus, rechargement automatique de la page) et le relais lit l'aéroport de cette unité dans AeroDataBox à sa prochaine lecture prévue. `?unit=<NOM>` dans l'adresse force une unité sur un écran (utile pour comparer).
 
 Colonnes d'un onglet d'unité (lues par leur nom, dans n'importe quel ordre, lignes de titre au-dessus autorisées) :
 
@@ -88,6 +94,7 @@ Contrôle d'un onglet complet : télécharger les onglets en CSV puis `node tool
 
 - Statuts : Live, Estimated, Scheduled, Delayed, Cancelled (légende en bas de la timeline). Heure nouvelle en premier, ancienne barrée, badge « Auto updated » ; les blocs glissent à leur nouvelle place.
 - Menu ☰ : vues Ops, Airlines, Production, Week, Config ; filtres ; Live log ; panneau latéral ; Demo.
+- Actualisation forcée (cachée) : **Maj + R**, ou Config > Refresh now. Relit le Sheet et le suivi ADS-B, sans jamais appeler AeroDataBox (pour lui : menu du Sheet **Ops On Time > Read AeroDataBox now**).
 - Config : unité active, aéroport et fuseau, sources et dernière synchronisation, état ADS-B et horaires, vols chargés avec leur statut (blanc : Sheet, bleu : automatique, violet : règle), règles en lecture seule avec lien vers le Sheet, Data health, vols par jour, filtres, alertes, affichage.
 - Écran sans surveillance : passe seul au jour suivant à minuit et se recharge une fois par nuit (03:30) pour prendre les mises à jour.
 
@@ -100,9 +107,9 @@ Contrôle d'un onglet complet : télécharger les onglets en CSV puis `node tool
 
 ### Préparer une démo pour un prospect
 
-1. Dans le Sheet, dupliquer `DEMO_BLANK`, le renommer (ex. `PROSPECT_X`), coller les numéros de vol au départ dans la colonne `FLIGHT`, créer `RULES_PROSPECT_X` (copie de `RULES_JNB` avec les codes ICAO et IATA et les coordonnées de l'aéroport), ajouter `PROSPECT_X` à `UNITS` et à `ACTIVE_UNITS` dans RULES.
-2. Menu **Ops On Time > Resolve flights** (16 appels, comptés) : horaires, jours, vol arrivant et callsign se remplissent. Sans ce menu, ils s'apprennent en 7 jours avec les lectures normales.
-3. Ouvrir `https://gus02322.github.io/JNB-Dashboard/?unit=PROSPECT_X&demo=on`.
+1. Dans le Sheet, prendre un onglet libre `CLIENT_1` (2, 3), coller les numéros de vol au départ dans `FLIGHT`, remplir `AIRPORT_IATA` et `UNIT_LABEL` dans `RULES_CLIENT_1` (l'aéroport doit être dans l'onglet `Airports`), puis choisir `CLIENT_1` dans RULES > `ACTIVE_UNITS`.
+2. Facultatif : menu **Ops On Time > Fill a new unit now** (16 appels, 32 unités) : horaires, jours, vol arrivant et callsign se remplissent. Sans ce menu, ils s'apprennent en 7 jours avec les lectures normales.
+3. Ouvrir le dashboard avec `?demo=on` pour le mode démo.
 
 ## Sécurité
 

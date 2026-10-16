@@ -787,6 +787,17 @@ function activeAirports(ss, base) {
   });
   return out;
 }
+function airportByIata(ss, iata) {
+  var sh = ss.getSheetByName('Airports'), code = String(iata || '').trim().toUpperCase();
+  if (!sh || !code) return null;
+  var v = sh.getDataRange().getDisplayValues(), h = v[0].map(norm), out = null;
+  v.slice(1).some(function (r) {
+    if (String(r[h.indexOf('IATA')]).trim().toUpperCase() !== code) return false;
+    out = { AIRPORT_ICAO: String(r[h.indexOf('ICAO')]).trim().toUpperCase(), AIRPORT_LAT: String(r[h.indexOf('LAT')]).trim(), AIRPORT_LON: String(r[h.indexOf('LON')]).trim() };
+    return true;
+  });
+  return out;
+}
 function airportIata(ss, icao) {
   var sh = ss.getSheetByName('Airports');
   if (!sh || !icao) return '';
@@ -1038,7 +1049,7 @@ function writeUsage(ss, u, plan, now, tz) {
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Ops On Time')
-    .addItem('Resolve flights', 'resolveFlights')
+    .addItem('Fill a new unit now (16 calls)', 'resolveFlights')
     .addItem('Resolve this tab', 'resolveActiveTab')
     .addItem('Read AeroDataBox now', 'adbNow')
     .addSeparator()
@@ -1114,7 +1125,15 @@ function readRules(ss, unit) {
   var cache = CacheService.getScriptCache(), ck = 'cfg:' + (unit || ''), hit = cache.get(ck);
   if (hit) return JSON.parse(hit);
   var cfg = readKv(ss.getSheetByName('RULES') || ss.getSheetByName('Config'));
-  if (unit) { var u = readKv(ss.getSheetByName('RULES_' + unit)); Object.keys(u).forEach(function (k) { cfg[k] = u[k]; }); }
+  if (unit) {
+    var u = readKv(ss.getSheetByName('RULES_' + unit));
+    Object.keys(u).forEach(function (k) { cfg[k] = u[k]; });
+    // Only AIRPORT_IATA given: ICAO code and coordinates from the Airports tab (never the global airport).
+    if (u.AIRPORT_IATA && !u.AIRPORT_ICAO) {
+      var a = airportByIata(ss, u.AIRPORT_IATA);
+      ['AIRPORT_ICAO', 'AIRPORT_LAT', 'AIRPORT_LON'].forEach(function (k) { if (!u[k]) cfg[k] = a ? a[k] : ''; });
+    }
+  }
   cache.put(ck, JSON.stringify(cfg), 300);
   return cfg;
 }

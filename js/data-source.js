@@ -20,6 +20,7 @@
   const CACHE_PREFIX = 'oot_csv_';
   const LEGACY_AIRLINES_KEY = 'cop_airlines';
   const GVIZ_RETRY_MS = 15 * 60 * 1000;
+  const UNIT_KEY = 'oot_unit';
 
   /* ---------- parsing (pure) ---------- */
 
@@ -91,7 +92,7 @@
 
   // Optional "Airports" tab (only used by the schedule based estimate, off by default).
   function parseAirports(rows) {
-    return parseTable(rows, 'ICAO').filter(o => o.ICAO && o.LAT && o.LON).map(o => ({ icao: o.ICAO.toUpperCase(), lat: parseFloat(o.LAT), lon: parseFloat(o.LON) }))
+    return parseTable(rows, 'ICAO').filter(o => o.ICAO && o.LAT && o.LON).map(o => ({ icao: o.ICAO.toUpperCase(), iata: (o.IATA || '').toUpperCase(), lat: parseFloat(o.LAT), lon: parseFloat(o.LON) }))
       .filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon));
   }
 
@@ -262,6 +263,19 @@
     });
   }
 
+  // RULES, then RULES_<UNIT> on top. A unit tab that gives only AIRPORT_IATA gets its ICAO code and
+  // coordinates from the Airports tab (the global airport of RULES is not used for it).
+  function unitSettings(base, unitRules, airports) {
+    const s = Object.assign({}, base, unitRules);
+    const iata = String(unitRules.AIRPORT_IATA || '').trim().toUpperCase();
+    if (iata && !unitRules.AIRPORT_ICAO) {
+      const a = (airports || []).find(x => x.iata === iata);
+      if (a) Object.assign(s, { AIRPORT_ICAO: a.icao, AIRPORT_LAT: String(a.lat), AIRPORT_LON: String(a.lon) });
+      else ['AIRPORT_ICAO', 'AIRPORT_LAT', 'AIRPORT_LON'].forEach(k => { if (!unitRules[k]) delete s[k]; });
+    }
+    return s;
+  }
+
   function icaoMap(airlines) {
     const m = {};
     (airlines || []).forEach(a => { if (a.iata && a.icao && !m[a.iata]) m[a.iata] = a.icao; });
@@ -274,7 +288,12 @@
 
   function create(cfg, env) {
     const listeners = [];
-    const unit = cleanUnit(new URLSearchParams(env.search || '').get('unit')) || cleanUnit(cfg.DEFAULT_UNIT) || 'MAIN';
+    // Unit shown: ?unit= in the address, else the active unit chosen in the Sheet (ACTIVE_UNITS in RULES,
+    // remembered on this device and followed at each refresh), else DEFAULT_UNIT of config.js.
+    const explicit = cleanUnit(new URLSearchParams(env.search || '').get('unit'));
+    let remembered = '';
+    try { remembered = cleanUnit(env.storage && env.storage.getItem(UNIT_KEY)); } catch (e) { remembered = ''; }
+    const unit = explicit || remembered || cleanUnit(cfg.DEFAULT_UNIT) || 'MAIN';
     const gids = cfg.SHEET_TAB_GIDS || {};
     let localFile, gvizDownUntil = 0;
     const state = { unit, flights: [], flightRows: [], airlines: [], settings: {}, boxTime: [], airports: [], apiUsage: {}, tabs: {}, health: [], stats: [], rules: null, syncedAt: null };
@@ -353,11 +372,16 @@
       if (!airlines.length) { // colours saved by earlier versions of the app on this device
         try { const legacy = env.storage && env.storage.getItem(LEGACY_AIRLINES_KEY); if (legacy) { airlines = JSON.parse(legacy); state.tabs.airlines.source = 'cache'; } } catch (e) { /* ignore */ }
       }
-      const settings = Object.assign({}, parseSettings(parseCSV(by.settings.text)), parseSettings(parseCSV(by.unitRules.text)));
+      state.airports = parseAirports(parseCSV(by.airports.text));
+      const settings = unitSettings(parseSettings(parseCSV(by.settings.text)), parseSettings(parseCSV(by.unitRules.text)), state.airports);
       state.airlines = airlines;
       state.settings = settings;
       state.boxTime = parseBoxTime(parseCSV(by.boxTime.text));
-      state.airports = parseAirports(parseCSV(by.airports.text));
+      // Active unit chosen in the Sheet: the screen follows it (the page reloads on the new unit).
+      const sheetUnit = cleanUnit(String(settings.ACTIVE_UNITS || settings.ACTIVE_UNIT || '').split(/[,;\s]+/)[0]);
+      state.sheetUnit = sheetUnit;
+      state.switchTo = !explicit && sheetUnit && sheetUnit !== unit ? sheetUnit : '';
+      if (state.switchTo) { try { env.storage && env.storage.setItem(UNIT_KEY, sheetUnit); } catch (e) { /* private mode */ } }
       state.apiUsage = parseSettings(parseCSV(by.usage.text));
       const raw = readUnitRows(parseCSV(by.flights.text, true));
       const built = buildUnit(raw || [], { unit, defaultUnit: cleanUnit(cfg.DEFAULT_UNIT), airlines, settings, boxTime: state.boxTime, airports: state.airports });
@@ -396,5 +420,5 @@
     };
   }
 
-  return { create, parseCSV, parseDays, parseTable, parseAirlines, parseSettings, parseBoxTime, parseAirports, readUnitRows, buildUnit, stats, ALL_WEEK };
+  return { create, unitSettings, parseCSV, parseDays, parseTable, parseAirlines, parseSettings, parseBoxTime, parseAirports, readUnitRows, buildUnit, stats, ALL_WEEK };
 });
