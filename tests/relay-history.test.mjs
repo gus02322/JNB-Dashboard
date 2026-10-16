@@ -389,6 +389,15 @@ test('AeroDataBox budget: economy above the planned pace, stopped before the cap
   assert.equal(rg.ranges.length, 4);
   assert.equal(e.ctx.adbDue(rg, 1300, 1e9 - 59 * 60000, 1e9), false);
   assert.equal(e.ctx.adbDue(rg, 1300, 1e9 - 60 * 60000, 1e9), true);
+  // OFF: reads only on demand (menu), never from the trigger
+  const off = makeEnv({ props: { AERODATABOX_KEY: 'k' } });
+  off.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);
+  off.sheets.RULES.rows.push(['ADB_SCHEDULE', 'OFF', '']);
+  off.adb(fictiveBoard());
+  ['00:00', '04:01', '08:00', '11:00', '18:30'].forEach(hm => { off.at('2026-10-06T' + hm + ':00Z'); off.ctx.adbTick({ triggerUid: 'x' }); });
+  assert.equal(off.adbCalls.length, 0);
+  off.ctx.adbTick(true);
+  assert.equal(off.adbCalls.length, 1);
   // stopped: no call at all
   const s = makeEnv({ props: { AERODATABOX_KEY: 'k' } });
   s.sheets.RULES_DEMO.rows.push(['AIRPORT_IATA', 'XXX', '']);

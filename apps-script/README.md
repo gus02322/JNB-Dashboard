@@ -37,7 +37,7 @@ Réglages dans RULES (lisibles par tous, sans secret) :
 | --- | --- | --- |
 | `ADB_MONTHLY_UNITS` | `400` (offre gratuite) ou `5000` | Budget mensuel en unités |
 | `ADB_UNITS_PER_CALL` | `2` | Coût d'un appel FIDS |
-| `ADB_SCHEDULE` | `@00:00\|04:00\|08:00\|11:00\|14:00\|18:00` | Heures fixes (`@`), ou plages `00:00-06:00:20\|06:00-16:00:15\|16:00-21:00:30\|21:00-24:00:60` (plage:intervalle en minutes) |
+| `ADB_SCHEDULE` | `OFF` (réglage actuel) ou `@00:00\|04:00\|08:00\|11:00\|14:00\|18:00` | `OFF` : AeroDataBox n'est lu qu'à la demande (menu **Read AeroDataBox now**, 2 unités). Sinon heures fixes (`@`), ou plages `00:00-06:00:20\|06:00-16:00:15\|16:00-21:00:30\|21:00-24:00:60` (plage:intervalle en minutes) |
 | `ADB_WITH_LOCATION` | `TRUE` | Demande la position de l'avion à AeroDataBox |
 | `ADB_PROVIDER` | `APIMARKET` | `APIMARKET` ou `RAPIDAPI` |
 
