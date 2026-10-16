@@ -706,7 +706,25 @@
 #legend { position: absolute; right: calc(150px * var(--scale)); bottom: 8px; z-index: 60; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: calc(10px * var(--scale)); color: var(--text-dim); background: rgba(19,22,30,0.85); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; pointer-events: none; }
 #legend .st-chip { font-size: calc(9px * var(--scale)); }
 #timeline-view { position: relative; }
-@media (max-width: 768px) { #legend { left: 8px; right: 8px; bottom: 66px; justify-content: center; gap: 6px; } #legend > span:last-child { display: none; } }
+@media (max-width: 768px) { #legend { left: 8px; right: 8px; bottom: 66px; justify-content: center; gap: 4px; flex-wrap: nowrap; padding: 4px 6px; } #legend .st-chip { font-size: 8px; padding: 1px 4px; letter-spacing: 0.5px; } #legend > span:last-child { display: none; }
+  #timeline-view { padding-bottom: 96px !important; }
+  #now-track { right: 10px; bottom: 100px; padding: 7px 11px; font-size: 11px; } }
+/* Phones: everything in the top bar fits on one line (logo, clock, date, search, menu). */
+@media (max-width: 480px) {
+  .logo { font-size: 12px !important; letter-spacing: 0.06em !important; padding: 0 6px 0 10px !important; }
+  #clock { font-size: 13px !important; padding: 0 6px !important; }
+  #date-picker-wrap { padding: 0 2px !important; gap: 2px !important; }
+  #date-display { font-size: 9px !important; min-width: 56px !important; padding: 2px 3px !important; }
+  #date-nav-prev, #date-nav-next { width: 20px !important; height: 24px !important; font-size: 13px !important; flex-shrink: 0 !important; }
+  #date-today-btn.hidden { display: none !important; }
+  /* Flight view: airline and route on their own line, smaller countdown */
+  .fv-head { flex-wrap: wrap; padding: 12px 14px; row-gap: 4px; }
+  .fv-sub { order: 5; flex-basis: 100%; font-size: 12px; }
+  .fv-count { font-size: 15px; }
+  .fv-eta-right { text-align: left; flex-basis: 100%; }
+  .fv-eta-time { font-size: 40px; }
+  #hamburger-wrap { padding: 0 6px !important; }
+}
 .eb-sub { font-size: calc(10px * var(--scale)); color: #8fd8ff; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .eblock.is-late { box-shadow: 0 0 0 2px #ffaa44, 0 0 14px rgba(255,170,68,0.35); }
 .fv-inb { padding: 8px 18px; font-size: 13px; font-weight: 600; color: #8fd8ff; border-bottom: 1px solid var(--border); background: rgba(0,212,255,0.05); }
@@ -1289,7 +1307,7 @@ function evLabel(ev){
   if(ev.live==='etd')return'ETD <span class="st-chip st-live">Live</span>';
   if(ev.live==='etdest')return'ETD <span class="st-chip st-estimated">Estimated</span>';
   const ac=ev.acChange?' <span class="st-chip st-delayed" title="Aircraft change: '+esc(ev.acChange.from)+' to '+esc(ev.acChange.to)+' (galley configuration)">Aircraft change</span>':'';
-  const pj=ev.type==='etd'&&ev.live==='airline'&&ev.time!==ev.sched?' <span class="st-chip st-delayed" title="The airline ETD (AeroDataBox) differs from the Sheet">ETD changed</span>':'';
+  const pj=ev.type==='etd'&&ev.live==='airline'&&ev.time!==ev.sched?' <span class="st-chip st-delayed" title="The airline ETD (AeroDataBox) differs from the Sheet: theoretical ETD changed">Changed</span>':'';
   if(ev.live==='dep')return'Departed <span class="st-chip st-live">'+(ev.by==='adb'?'Reported':'Live')+'</span>'+ac;
   if(ev.live==='airline')return ev.lbl+(pj?'':' <span class="st-chip st-estimated" title="Airline time from AeroDataBox">Airline</span>')+ac+pj;
   if(ev.late)return'ETD <span class="st-chip st-delayed" title="Not seen airborne by live tracking">Not airborne +'+ev.late+'m</span>';
