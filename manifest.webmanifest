@@ -1,6 +1,6 @@
 {
-  "name": "ANGA",
-  "short_name": "ANGA",
+  "name": "Ops On Time",
+  "short_name": "Ops On Time",
   "description": "Live catering operations, on one screen.",
   "start_url": "./",
   "scope": "./",
